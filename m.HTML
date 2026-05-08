@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tactical Strategy Prototype</title>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      transition: background 1s, color 1s;
+      overflow-x: hidden;
+    }
+
+    .container {
+      padding: 20px;
+      max-width: 1400px;
+      margin: auto;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 20px;
+      padding: 20px;
+      border-radius: 20px;
+      background: rgba(0,0,0,0.2);
+      backdrop-filter: blur(5px);
+    }
+
+    .controls button {
+      margin: 5px;
+      padding: 10px 15px;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      color: white;
+      font-weight: bold;
+    }
+
+    .slow { background: #2563eb; }
+    .fast { background: #16a34a; }
+    .pause { background: #ca8a04; }
+    .regen { background: #991b1b; }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(10, 1fr);
+      grid-auto-rows: 1fr;
+      gap: 4px;
+      margin-top: 20px;
+      padding: 20px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 20px;
+    }
+
+    .tile {
+      aspect-ratio: 1;
+      border-radius: 12px;
+      position: relative;
+      overflow: hidden;
+      border: 2px solid white;
+      font-size: 10px;
+      padding: 10px 8px;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .terrain-icon {
+      font-size: 1.8rem;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .tile-info {
+      font-size: 11px;
+      line-height: 1.2;
+    }
+
+    .hidden {
+      background: black !important;
+    }
+
+    .panels {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      margin-top: 20px;
+    }
+
+    .panel {
+      background: rgba(0,0,0,0.2);
+      padding: 20px;
+      border-radius: 20px;
+      backdrop-filter: blur(5px);
+    }
+
+    .storm-warning {
+      color: red;
+      font-weight: bold;
+      animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.4; }
+      100% { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <div class="topbar">
+    <div>
+      <h1>Tactical Strategy Prototype</h1>
+      <p id="timeText"></p>
+      <p id="weatherText"></p>
+      <p id="stormScheduleText"></p>
+      <p id="stormWarning" class="storm-warning"></p>
+    </div>
+
+    <div class="controls">
+      <button class="slow" onclick="slowTime()">Slow Time</button>
+      <button class="fast" onclick="speedTime()">Speed Time</button>
+      <button id="pauseButton" class="pause" onclick="togglePause()">Pause</button>
+      <button class="regen" onclick="generateBoard()">Regenerate Map</button>
+    </div>
+  </div>
+
+  <div id="board" class="board"></div>
+
+  <div class="panels">
+
+    <div class="panel">
+      <h2>Core Systems</h2>
+      <ul>
+        <li>Dynamic terrain generation</li>
+        <li>Fog of war foundation</li>
+        <li>Time-speed controls</li>
+        <li>Day/night transitions</li>
+        <li>Highstorm warning system</li>
+        <li>Crem accumulation</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h2>Planned Systems</h2>
+      <ul>
+        <li>Unit morale tracking</li>
+        <li>Fatigue spread between blocks</li>
+        <li>Psychological warfare</li>
+        <li>Shelter durability</li>
+        <li>Terrain destruction</li>
+        <li>Voting mechanics</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h2>Visual Direction</h2>
+      <ul>
+        <li>Tabletop-inspired terrain</li>
+        <li>Miniature battlefield style</li>
+        <li>Strategic readability</li>
+        <li>Dynamic weather visuals</li>
+      </ul>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+
+const terrainTypes = [
+  { name: 'Plains', color: '#fde68a' },
+  { name: 'Forest', color: '#166534' },
+  { name: 'Wetlands', color: '#155e75' },
+  { name: 'Mountains', color: '#6b7280' }
+];
+
+const terrainGraphics = {
+  Plains: '🌾',
+  Forest: '🌳',
+  Wetlands: '🌿',
+  Mountains: '🏔️',
+  'Small Hill': '⛰️',
+  'Medium Hill': '⛰️',
+  'Large Hill': '⛰️',
+  Mountain: '🏔️'
+};
+
+const terrainProgression = {
+  Plains: { next: 'Small Hill', threshold: 100 },
+  'Small Hill': { next: 'Medium Hill', threshold: 110 },
+  'Medium Hill': { next: 'Large Hill', threshold: 120 },
+  'Large Hill': { next: 'Mountain', threshold: 130 }
+};
+
+const terrainColors = {
+  Plains: '#fde68a',
+  Forest: '#166534',
+  Wetlands: '#155e75',
+  Mountains: '#6b7280',
+  'Small Hill': '#d97706',
+  'Medium Hill': '#c2410c',
+  'Large Hill': '#7c2d12',
+  Mountain: '#6b7280'
+};
+
+const boardSize = 10;
+let timeSpeed = 1;
+let timeOfDay = 8;
+let weather = 'Clear';
+let paused = false;
+let boardData = [];
+let currentDay = 1;
+let nextHighstormDay = 5;
+let nextHighstormWarningDay = 3;
+let nextEverstormDay = 12;
+let stormType = null;
+let stormRemainingHours = 0;
+const stormDurationHours = 10;
+
+
+function scheduleHighstorm(fromDay = currentDay) {
+  const interval = 4 + Math.floor(Math.random() * 3); // 4-6 day average
+  const scheduledDay = fromDay + interval;
+  const warningLead = 1 + Math.floor(Math.random() * 2); // 1-2 day warning window
+  nextHighstormWarningDay = Math.max(fromDay + 1, scheduledDay - warningLead);
+  return scheduledDay;
+}
+
+function scheduleEverstorm(fromDay = currentDay) {
+  const interval = 12 + Math.floor(Math.random() * 5); // 12-16 day average
+  return fromDay + interval;
+}
+
+function processTerrainGrowth(tile) {
+  const progression = terrainProgression[tile.terrain];
+  if (!progression || tile.crem < progression.threshold) return;
+
+  tile.terrain = progression.next;
+  tile.color = terrainColors[tile.terrain] || tile.color;
+  tile.crem = 0;
+}
+
+function startStorm(type) {
+  stormType = type;
+  weather = type;
+  stormRemainingHours = stormDurationHours;
+  document.getElementById('stormWarning').innerText =
+    type === 'Everstorm'
+      ? `Everstorm strikes on day ${currentDay}!`
+      : 'Highstorm is upon you!';
+
+  boardData.forEach(row => {
+    row.forEach(tile => {
+      tile.crem += Math.floor(Math.random() * (type === 'Everstorm' ? 30 : 15));
+      processTerrainGrowth(tile);
+    });
+  });
+
+  renderBoard();
+
+  if (type === 'Highstorm') {
+    nextHighstormDay = scheduleHighstorm(currentDay);
+  } else {
+    nextEverstormDay = scheduleEverstorm(currentDay);
+  }
+}
+
+function endStorm() {
+  stormType = null;
+  weather = 'Clear';
+  document.getElementById('stormWarning').innerText = '';
+}
+
+function advanceDay() {
+  currentDay += 1;
+
+  if (!stormType) {
+    if (currentDay === nextEverstormDay) {
+      startStorm('Everstorm');
+    } else if (currentDay === nextHighstormDay) {
+      startStorm('Highstorm');
+    }
+  }
+}
+
+function initializeStormSchedule() {
+  nextHighstormDay = scheduleHighstorm(currentDay);
+  nextEverstormDay = scheduleEverstorm(currentDay);
+}
+
+function generateBoard() {
+  boardData = [];
+
+  for (let y = 0; y < boardSize; y++) {
+    let row = [];
+
+    for (let x = 0; x < boardSize; x++) {
+      const terrain = terrainTypes[Math.floor(Math.random() * terrainTypes.length)];
+
+      row.push({
+        terrain: terrain.name,
+        color: terrain.color,
+        discovered: Math.random() > 0.15,
+        crem: Math.random() > 0.8 ? Math.floor(Math.random() * 100) : 0,
+        hazard: Math.random() > 0.9
+      });
+    }
+
+    boardData.push(row);
+  }
+
+  renderBoard();
+}
+
+function renderBoard() {
+  const board = document.getElementById('board');
+  board.innerHTML = '';
+
+  boardData.flat().forEach(tile => {
+    const div = document.createElement('div');
+    div.className = 'tile';
+
+    if (!tile.discovered) {
+      div.classList.add('hidden');
+    } else {
+      div.style.background = tile.color;
+      const textColor = (function(bgColor) {
+        const hex = bgColor.replace('#', '');
+        const r = parseInt(hex.substr(0, 2), 16);
+        const g = parseInt(hex.substr(2, 2), 16);
+        const b = parseInt(hex.substr(4, 2), 16);
+        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        return luminance > 0.5 ? 'black' : 'white';
+      })(tile.color);
+      div.style.color = textColor;
+      const icon = terrainGraphics[tile.terrain] || '❓';
+
+      const stats = [
+        `Terrain: ${tile.terrain}`,
+        `Crem: ${tile.crem}`,
+        tile.hazard ? 'Hazard: Yes' : 'Hazard: No',
+        `Discovered: ${tile.discovered ? 'Yes' : 'No'}`
+      ].join('\n');
+
+      div.title = stats;
+
+      div.innerHTML = `
+        <div class="terrain-icon">${icon}</div>
+        <div class="tile-info">
+          <strong>${tile.terrain}</strong><br>
+          ${tile.crem > 0 ? `Crem: ${tile.crem}<br>` : ''}
+          ${tile.hazard ? '⚠ Hazard' : ''}
+        </div>
+      `;
+    }
+
+    board.appendChild(div);
+  });
+}
+
+function updateTime() {
+  if (paused) return;
+
+  timeOfDay += 0.1 * timeSpeed;
+
+  if (timeOfDay >= 24) {
+    timeOfDay -= 24;
+    advanceDay();
+  }
+
+  if (stormType) {
+    stormRemainingHours -= 0.1 * timeSpeed;
+    if (stormRemainingHours <= 0) {
+      endStorm();
+    }
+  }
+
+  updateLighting();
+  updateUI();
+}
+
+function updateStormUI() {
+  const warning = document.getElementById('stormWarning');
+  if (stormType) {
+    warning.innerText = `${stormType} ongoing — ${Math.max(0, stormRemainingHours.toFixed(1))}h remaining`;
+    return;
+  }
+
+  if (currentDay >= nextHighstormWarningDay && currentDay < nextHighstormDay) {
+    warning.innerText =
+      `Highstorm warning window open until day ${nextHighstormDay}.`;
+    return;
+  }
+
+  if (currentDay === nextHighstormDay) {
+    warning.innerText = 'Highstorm may strike today!';
+    return;
+  }
+
+  warning.innerText = '';
+}
+
+function updateLighting() {
+  if (timeOfDay >= 6 && timeOfDay < 18) {
+    document.body.style.background = '#cbd5e1';
+    document.body.style.color = 'black';
+  }
+  else if ((timeOfDay >= 5 && timeOfDay < 6) || (timeOfDay >= 18 && timeOfDay < 19)) {
+    document.body.style.background = '#fdba74';
+    document.body.style.color = 'black';
+  }
+  else {
+    document.body.style.background = '#0f172a';
+    document.body.style.color = 'white';
+  }
+}
+
+function getTimeLabel() {
+  if (timeOfDay >= 6 && timeOfDay < 12) return 'Morning';
+  if (timeOfDay >= 12 && timeOfDay < 18) return 'Midday';
+  if (timeOfDay >= 18 && timeOfDay < 20) return 'Dusk';
+  if (timeOfDay >= 4 && timeOfDay < 6) return 'Dawn';
+  return 'Night';
+}
+
+function updateUI() {
+  document.getElementById('timeText').innerText =
+    `Day ${currentDay}, ${timeOfDay.toFixed(1)}h — ${getTimeLabel()}`;
+
+  document.getElementById('weatherText').innerText =
+    `Weather: ${weather}`;
+
+  document.getElementById('stormScheduleText').innerText =
+    `Next Highstorm window: Day ${nextHighstormWarningDay}–${nextHighstormDay} | Next Everstorm: Day ${nextEverstormDay}`;
+
+  updateStormUI();
+}
+
+function slowTime() {
+  timeSpeed = Math.max(0.5, timeSpeed - 0.5);
+}
+
+function speedTime() {
+  timeSpeed += 0.5;
+}
+
+function togglePause() {
+  paused = !paused;
+  document.getElementById('pauseButton').innerText = paused ? 'Resume' : 'Pause';
+}
+
+setInterval(updateTime, 100);
+
+initializeStormSchedule();
+generateBoard();
+updateUI();
+updateLighting();
+
+</script>
+
+</body>
+</html>
