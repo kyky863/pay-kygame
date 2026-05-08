@@ -127,8 +127,10 @@
     </div>
 
     <div class="controls">
-      <button class="slow" onclick="slowTime()">Slow Time</button>
-      <button class="fast" onclick="speedTime()">Speed Time</button>
+      <div>
+        <label for="speedSlider"><strong>Time Speed:</strong> <span id="speedLabel">1x</span></label>
+        <input id="speedSlider" type="range" min="0.5" max="16" step="0.5" value="1" onchange="updateSpeed(this.value)" />
+      </div>
       <button id="pauseButton" class="pause" onclick="togglePause()">Pause</button>
       <button class="regen" onclick="generateBoard()">Regenerate Map</button>
     </div>
@@ -300,6 +302,15 @@ function initializeStormSchedule() {
 }
 
 function generateBoard() {
+  timeSpeed = 1;
+  timeOfDay = 8;
+  weather = 'Clear';
+  paused = false;
+  currentDay = 1;
+  stormType = null;
+  stormRemainingHours = 0;
+  document.getElementById('pauseButton').innerText = 'Pause';
+  initializeStormSchedule();
   boardData = [];
 
   for (let y = 0; y < boardSize; y++) {
@@ -321,6 +332,8 @@ function generateBoard() {
   }
 
   renderBoard();
+  updateUI();
+  updateLighting();
 }
 
 function renderBoard() {
@@ -445,14 +458,19 @@ function updateUI() {
     `Next Highstorm window: Day ${nextHighstormWarningDay}–${nextHighstormDay} | Next Everstorm: Day ${nextEverstormDay}`;
 
   updateStormUI();
+  updateSpeedUI();
 }
 
-function slowTime() {
-  timeSpeed = Math.max(0.5, timeSpeed - 0.5);
+function updateSpeed(value) {
+  timeSpeed = Number(value);
+  updateSpeedUI();
 }
 
-function speedTime() {
-  timeSpeed += 0.5;
+function updateSpeedUI() {
+  const label = document.getElementById('speedLabel');
+  label.innerText = `${timeSpeed.toFixed(timeSpeed % 1 ? 1 : 0)}x`;
+  const slider = document.getElementById('speedSlider');
+  if (slider) slider.value = timeSpeed;
 }
 
 function togglePause() {
