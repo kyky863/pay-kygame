@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-const boardSize = 12;
+const boardSize = 20;
 const hexRadius = 2.2;
 const elevationScale = 1.5;
 const tileThickness = 1.0;
@@ -13,6 +13,15 @@ const boardCenterOffset = new THREE.Vector3(
   0,
   (Math.sqrt(3) * hexRadius * (boardSize * 0.5)) / 2
 );
+
+// Map boundary constraints
+const mapBounds = {
+  minX: -5,
+  maxX: boardCenterOffset.x * 2 + 5,
+  minZ: -5,
+  maxZ: boardCenterOffset.z * 2 + 5,
+  minY: 1
+};
 
 let timeSpeed = 1;
 let timeOfDay = 8;
@@ -39,8 +48,8 @@ const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2('#a8d8ff', 0.020);
 
-const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 200);
-camera.position.set(16, 26, 22);
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 300);
+camera.position.set(30, 42, 36);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -52,16 +61,86 @@ container.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.minDistance = 10;
-controls.maxDistance = 80;
-controls.maxPolarAngle = Math.PI * 0.45;
+controls.enablePan = true;
+controls.screenSpacePanning = false;
+controls.panSpeed = 1.2;
+controls.minDistance = 12;
+controls.maxDistance = 160;
+controls.minPolarAngle = 0.2;
+controls.maxPolarAngle = Math.PI * 0.72;
 controls.target.set(0, 0, 0);
 controls.update();
+
+const keyboardState = {
+  arrowup: false,
+  arrowdown: false,
+  arrowleft: false,
+  arrowright: false,
+  w: false,
+  a: false,
+  s: false,
+  d: false
+};
+
+function onKeyDown(event) {
+  const key = event.key.toLowerCase();
+  if (key in keyboardState) {
+    keyboardState[key] = true;
+    event.preventDefault();
+  }
+}
+
+function onKeyUp(event) {
+  const key = event.key.toLowerCase();
+  if (key in keyboardState) {
+    keyboardState[key] = false;
+    event.preventDefault();
+  }
+}
+
+function updateKeyboardCamera(delta) {
+  const moveDistance = 20 * delta; // Adjust speed as needed
+  const sideways = new THREE.Vector3();
+  const forward = new THREE.Vector3();
+  
+  // Get camera direction vectors
+  camera.getWorldDirection(forward);
+  forward.normalize();
+  
+  sideways.crossVectors(camera.up, forward);
+  sideways.normalize();
+
+  if (keyboardState.arrowleft || keyboardState.a) {
+    camera.position.addScaledVector(sideways, moveDistance);
+    controls.target.addScaledVector(sideways, moveDistance);
+  }
+  if (keyboardState.arrowright || keyboardState.d) {
+    camera.position.addScaledVector(sideways, -moveDistance);
+    controls.target.addScaledVector(sideways, -moveDistance);
+  }
+  if (keyboardState.arrowup || keyboardState.w) {
+    camera.position.addScaledVector(forward, moveDistance);
+    controls.target.addScaledVector(forward, moveDistance);
+  }
+  if (keyboardState.arrowdown || keyboardState.s) {
+    camera.position.addScaledVector(forward, -moveDistance);
+    controls.target.addScaledVector(forward, -moveDistance);
+  }
+
+  // Apply boundary constraints
+  camera.position.x = Math.max(mapBounds.minX, Math.min(mapBounds.maxX, camera.position.x));
+  camera.position.y = Math.max(mapBounds.minY, camera.position.y);
+  camera.position.z = Math.max(mapBounds.minZ, Math.min(mapBounds.maxZ, camera.position.z));
+
+  controls.target.x = Math.max(mapBounds.minX, Math.min(mapBounds.maxX, controls.target.x));
+  controls.target.y = Math.max(mapBounds.minY - 10, controls.target.y); // Allow target to be below camera
+  controls.target.z = Math.max(mapBounds.minZ, Math.min(mapBounds.maxZ, controls.target.z));
+}
 
 const worldGroup = new THREE.Group();
 scene.add(worldGroup);
 
-const debugGrid = new THREE.GridHelper(80, 80, '#5b7287', '#25303d');
+const debugGrid = new THREE.GridHelper(220, 220, '#5b7287', '#25303d');
 debugGrid.position.y = -1.2;
 debugGrid.material.opacity = 0.35;
 debugGrid.material.transparent = true;
@@ -84,7 +163,7 @@ const fillLight = new THREE.HemisphereLight('#cde7ff', '#14213d', 0.35);
 scene.add(fillLight);
 
 const groundPlane = new THREE.Mesh(
-  new THREE.PlaneGeometry(180, 180),
+  new THREE.PlaneGeometry(260, 260),
   new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 1, metalness: 0 })
 );
 groundPlane.rotation.x = -Math.PI / 2;
@@ -335,7 +414,7 @@ function getCollapseInfo() {
 }
 
 function createTileMesh(tile) {
-  // Create a proper hexagonal prism geometry
+  // Create a proper hexagonal prism geometry with smooth beveling
   const shape = new THREE.Shape();
   const points = [];
   for (let i = 0; i < 6; i++) {
@@ -346,16 +425,20 @@ function createTileMesh(tile) {
 
   const geometry = new THREE.ExtrudeGeometry(shape, {
     depth: tileThickness,
-    bevelEnabled: false
+    bevelEnabled: true,
+    bevelThickness: 0.08,
+    bevelSize: 0.08,
+    bevelOffset: 0,
+    bevelSegments: 3
   });
   geometry.rotateX(-Math.PI / 2);
   geometry.translate(0, tileThickness / 2, 0);
 
   const material = new THREE.MeshStandardMaterial({
     color: tile.color,
-    roughness: 0.7,
-    metalness: 0,
-    flatShading: true
+    roughness: 0.6,
+    metalness: 0.1,
+    flatShading: false
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true;
@@ -471,6 +554,10 @@ function smoothElevations() {
     for (let y = 0; y < boardSize; y++) {
       for (let x = 0; x < boardSize; x++) {
         const tile = boardData[y][x];
+
+        // Skip chasms - they have their own rules
+        if (tile.terrain === 'Chasm') continue;
+
         const neighbors = getAdjacentTiles(tile);
 
         if (neighbors.length === 0) continue;
@@ -488,10 +575,48 @@ function smoothElevations() {
         }
 
         // Ensure elevation stays within reasonable bounds
-        tile.elevation = Math.max(-2, Math.min(5, tile.elevation));
+        tile.elevation = Math.max(-1, Math.min(5, tile.elevation));
       }
     }
   }
+
+  // Special handling for chasms - ensure they are connected and have proper depth
+  for (let y = 0; y < boardSize; y++) {
+    for (let x = 0; x < boardSize; x++) {
+      const tile = boardData[y][x];
+      if (tile.terrain === 'Chasm') {
+        const neighbors = getAdjacentTiles(tile);
+        const chasmNeighbors = neighbors.filter(n => n.terrain === 'Chasm').length;
+
+        // If chasm has no chasm neighbors, it's isolated - fill it in
+        if (chasmNeighbors === 0) {
+          // Convert to a low-elevation terrain
+          const nearbyTerrains = neighbors.map(n => n.terrain);
+          const commonTerrain = nearbyTerrains[0] || 'Plains';
+          setTerrain(tile, commonTerrain);
+          tile.elevation = Math.max(-1, tile.elevation);
+        } else {
+          // Ensure chasm depth is between 0 and -2
+          tile.elevation = Math.max(-2, Math.min(0, tile.elevation));
+        }
+      }
+    }
+  }
+}
+
+function calculateGeneratedElevation(biome, neighbors) {
+  // Use nearby tile heights to create less extreme geology.
+  if (neighbors.length === 0) {
+    return biome.elevation + Math.floor(seededRandom() * 2);
+  }
+
+  const averageElevation = neighbors.reduce((sum, tile) => sum + tile.elevation, 0) / neighbors.length;
+  const offset = Math.floor(seededRandom() * 3) - 1; // -1, 0, or 1
+  const targetElevation = Math.round((averageElevation + biome.elevation) / 2 + offset);
+
+  // Prevent huge jumps and keep mountain elevs reasonable.
+  const clamped = Math.max(Math.min(targetElevation, Math.max(...neighbors.map(t => t.elevation)) + 1), Math.min(...neighbors.map(t => t.elevation)) - 1);
+  return Math.max(-2, Math.min(5, clamped));
 }
 
 function generateBoard() {
@@ -507,8 +632,29 @@ function generateBoard() {
   for (let y = 0; y < boardSize; y += 1) {
     const row = [];
     for (let x = 0; x < boardSize; x += 1) {
-      const biome = biomeTypes[Math.floor(seededRandom() * biomeTypes.length)];
-      const elevation = biome.elevation + Math.floor(seededRandom() * 1.5); // Reduced randomness
+      let biome;
+      let elevation;
+
+      // Build the tile dynamically from previous neighboring tiles.
+      const neighborTiles = [];
+      if (y > 0) neighborTiles.push(boardData[y - 1][x]);
+      if (y > 0 && x > 0) neighborTiles.push(boardData[y - 1][x - 1]);
+      if (x > 0) neighborTiles.push(row[x - 1]);
+      if (y > 0 && x < boardSize - 1) neighborTiles.push(boardData[y - 1][x + 1]);
+
+      const chasmNeighbors = neighborTiles.filter(n => n && n.terrain === 'Chasm').length;
+      const chasmChance = chasmNeighbors > 0 ? 0.35 : 0.02;
+      if (seededRandom() < chasmChance) {
+        biome = biomeTypes.find(b => b.name === 'Chasm');
+      } else {
+        const nonChasmBiomes = biomeTypes.filter(b => b.name !== 'Chasm');
+        biome = nonChasmBiomes[Math.floor(seededRandom() * nonChasmBiomes.length)];
+      }
+
+      elevation = calculateGeneratedElevation(biome, neighborTiles.filter(Boolean));
+      if (biome.name === 'Chasm') {
+        elevation = Math.max(-2, Math.min(0, elevation));
+      }
       const tile = {
         x,
         y,
@@ -645,6 +791,7 @@ function animate(time) {
   lastFrameTime = time;
   updateTime(deltaSeconds);
   updateWaterAnimation(deltaSeconds);
+  updateKeyboardCamera(deltaSeconds);
   updateUI();
   controls.update();
   renderer.render(scene, camera);
@@ -667,9 +814,15 @@ function connectUI() {
     highlightTile(null);
   });
   document.getElementById('pauseButton').addEventListener('click', togglePause);
+  document.getElementById('timeSpeedSlider').addEventListener('input', (event) => {
+    timeSpeed = parseFloat(event.target.value);
+    document.getElementById('timeSpeedValue').innerText = timeSpeed.toFixed(1) + 'x';
+  });
   window.addEventListener('resize', onWindowResize);
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('click', onClick);
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
 }
 
 function initialize() {

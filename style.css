@@ -105,6 +105,62 @@ button:hover {
   color: #e2e8f0;
 }
 
+#timeControl {
+  padding: 18px;
+  border-radius: 24px;
+  backdrop-filter: blur(18px);
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.6);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.95rem;
+}
+
+#timeControl label {
+  font-weight: 600;
+  min-width: 80px;
+}
+
+#timeControl input[type="range"] {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+#timeControl input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2563eb, #0ea5e9);
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+}
+
+#timeControl input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2563eb, #0ea5e9);
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+}
+
+#timeSpeedValue {
+  min-width: 40px;
+  text-align: right;
+  font-weight: 600;
+  color: #0ea5e9;
+}
+
 @media (max-width: 720px) {
   #ui {
     left: 10px;
