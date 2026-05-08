@@ -46,6 +46,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.setClearColor('#7db3ff', 1);
 container.appendChild(renderer.domElement);
 
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -58,6 +59,12 @@ controls.update();
 
 const worldGroup = new THREE.Group();
 scene.add(worldGroup);
+
+const debugGrid = new THREE.GridHelper(80, 80, '#5b7287', '#25303d');
+debugGrid.position.y = -1.2;
+debugGrid.material.opacity = 0.35;
+debugGrid.material.transparent = true;
+scene.add(debugGrid);
 
 const directionalLight = new THREE.DirectionalLight('#ffffff', 1.3);
 directionalLight.position.set(30, 40, 20);
@@ -381,7 +388,12 @@ function createTreePrototype() {
 }
 
 function buildWorldMeshes() {
-  worldGroup.clear();
+  while (worldGroup.children.length > 0) {
+    const child = worldGroup.children[0];
+    worldGroup.remove(child);
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+  }
   tileMeshes.length = 0;
   waterMeshes.length = 0;
   forestMeshes.length = 0;
