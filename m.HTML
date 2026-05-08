@@ -51,6 +51,20 @@ body {
   background: #ca8a04;
 }
 
+.dev-toggle {
+  background: #2563eb;
+}
+
+.hidden {
+  background: black !important;
+  color: white !important;
+}
+
+.dev-hidden {
+  opacity: 0.35;
+  filter: grayscale(0.8);
+}
+
 .regen {
   background: #991b1b;
 }
@@ -167,6 +181,10 @@ body {
         Regenerate World
       </button>
 
+      <button class="dev-toggle" id="devButton" onclick="toggleDevView()">
+        Dev View Off
+      </button>
+
     </div>
 
   </div>
@@ -234,6 +252,8 @@ let stormRemainingHours = 0;
 let nextHighstormDay = 5;
 let nextHighstormWarningDay = 3;
 let nextEverstormDay = 12;
+
+let devView = false;
 
 const stormDurationHours = 10;
 
@@ -461,6 +481,16 @@ function setTerrain(tile, terrainName) {
     tile.color = newBiome.color;
     tile.icon = newBiome.icon;
     tile.elevation = newBiome.elevation;
+    return;
+  }
+
+  // Fallback biome if the terrain name becomes invalid.
+  const fallback = biomeTypes.find(b => b.name === 'Plains');
+  if (fallback) {
+    tile.terrain = 'Plains';
+    tile.color = fallback.color;
+    tile.icon = fallback.icon;
+    tile.elevation = fallback.elevation;
   }
 }
 
@@ -574,6 +604,13 @@ function processHazardHealing(tile) {
   if (tile.hazard === 'lightning_blasted' && tile.crem >= 50) {
     tile.hazard = null;
   }
+}
+
+function toggleDevView() {
+  devView = !devView;
+  document.getElementById('devButton').innerText =
+    devView ? 'Dev View On' : 'Dev View Off';
+  renderBoard();
 }
 
 // =========================
@@ -801,50 +838,73 @@ function renderBoard() {
 
     div.className = 'tile';
 
+    const forestOverlay = tile.forestCover
+      ? biomeTypes.find(b => b.name === tile.forestCover)
+      : null;
+
+    const terrainBiome = biomeTypes.find(b => b.name === tile.terrain) || biomeTypes.find(b => b.name === 'Plains');
+    if (!tile.color) {
+      tile.color = terrainBiome.color;
+    }
+    if (!tile.icon) {
+      tile.icon = terrainBiome.icon;
+    }
+
     if (!tile.discovered) {
-
-      div.classList.add('hidden');
-
+      if (devView) {
+        div.classList.add('dev-hidden');
+        const backgroundColor = forestOverlay ? forestOverlay.color : tile.color;
+        div.style.background = backgroundColor;
+        div.style.color = getContrastColor(backgroundColor);
+        div.innerHTML = `
+          <div class="terrain-icon">
+            ${forestOverlay ? forestOverlay.icon + ' ' : ''}${tile.icon}
+          </div>
+          <div class="tile-info">
+            <strong>Hidden</strong><br>
+            ${tile.terrain}<br>
+            ${tile.forestCover ? `${tile.forestCover}<br>` : ''}
+          </div>
+        `;
+      } else {
+        div.classList.add('hidden');
+        div.style.background = 'black';
+        div.style.color = 'white';
+        div.innerHTML = `
+          <div class="tile-info" style="text-align:center; margin:auto; width:100%;">
+            <strong>Hidden</strong><br>
+            Explore to reveal
+          </div>
+        `;
+      }
     } else {
-
-      const forestOverlay = tile.forestCover
-        ? biomeTypes.find(b => b.name === tile.forestCover)
-        : null;
-
-      div.style.background = forestOverlay ? forestOverlay.color : tile.color;
-
-      const textColor = getContrastColor(div.style.background);
-
+      const terrainBiomeVisible = terrainBiome;
+      if (!tile.color) {
+        tile.color = terrainBiomeVisible.color;
+      }
+      if (!tile.icon) {
+        tile.icon = terrainBiomeVisible.icon;
+      }
+      const backgroundColor = forestOverlay ? forestOverlay.color : tile.color;
+      div.style.background = backgroundColor;
+      const textColor = getContrastColor(backgroundColor);
       div.style.color = textColor;
-
       const unit = units.find(u => u.x === tile.x && u.y === tile.y);
-
       div.innerHTML = `
-
         <div class="terrain-icon">
           ${forestOverlay ? forestOverlay.icon + ' ' : ''}${tile.icon}
         </div>
-
         <div class="tile-info">
-
           <strong>${tile.terrain}</strong><br>
           ${tile.forestCover ? `${tile.forestCover}<br>` : ''}
-
           X:${tile.x} Y:${tile.y}<br>
-
           Elevation: ${tile.elevation}<br>
-
           Crem: ${tile.crem}<br>
-
           Water: ${tile.waterLevel}<br>
-
           ${tile.hazard === 'lightning_blasted' ? '⚡ Lightning Blasted<br>' : ''}
-
           ${unit ? '🛡️ ' + unit.type : ''}
-
         </div>
       `;
-
       div.title = `
 Terrain: ${tile.terrain}
 ${tile.forestCover ? `Forest Cover: ${tile.forestCover}
@@ -854,7 +914,6 @@ Crem: ${tile.crem}
 Water: ${tile.waterLevel}
 Stability: ${tile.stability}
       `;
-
     }
 
     board.appendChild(div);
