@@ -2,7 +2,8 @@
 // This file creates a 3D hex terrain prototype with Three.js.
 // All of your gameplay systems—terrain generation, storms, time, water, chasms, forest spread, units—can be added here.
 
-// ----- GLOBAL GAME STATE -----
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 const boardSize = 12;
 const hexRadius = 2.2;
 const elevationScale = 1.5;
@@ -49,7 +50,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.setClearColor('#7db3ff', 1);
 container.appendChild(renderer.domElement);
 
-const controls = new THREE.OrbitControls(camera, renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.minDistance = 10;
 controls.maxDistance = 80;
@@ -111,7 +112,7 @@ const biomeTypes = [
   { name: 'Hilly Forest', color: '#166534', icon: '🌲', elevation: 2 },
   { name: 'Mountain Forest', color: '#25472a', icon: '⛰️', elevation: 4 },
   { name: 'Burned Forest', color: '#7c2d12', icon: '🔥', elevation: 1 },
-  { name: 'Chasm', color: '#0f172a', icon: '🕳️', elevation: -3 },
+  { name: 'Chasm', color: '#0f172a', icon: '🕳️', elevation: -2 },
   { name: 'Young Forest', color: '#84cc16', icon: '🌱', elevation: 0 },
   { name: 'Wetlands', color: '#0f766e', icon: '🌿', elevation: 0 },
   { name: 'Rocky Wetlands', color: '#115e59', icon: '🪨', elevation: 1 },
@@ -334,8 +335,22 @@ function getCollapseInfo() {
 }
 
 function createTileMesh(tile) {
-  const geometry = new THREE.CylinderGeometry(hexRadius, hexRadius, tileThickness, 6, 1);
+  // Create a proper hexagonal prism geometry
+  const shape = new THREE.Shape();
+  const points = [];
+  for (let i = 0; i < 6; i++) {
+    const angle = (i * Math.PI) / 3;
+    points.push(new THREE.Vector2(Math.cos(angle) * hexRadius, Math.sin(angle) * hexRadius));
+  }
+  shape.setFromPoints(points);
+
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: tileThickness,
+    bevelEnabled: false
+  });
   geometry.rotateX(-Math.PI / 2);
+  geometry.translate(0, tileThickness / 2, 0);
+
   const material = new THREE.MeshStandardMaterial({
     color: tile.color,
     roughness: 0.7,
@@ -447,6 +462,38 @@ function rebuildVisuals() {
   updateUI();
 }
 
+function smoothElevations() {
+  // Smooth elevations to prevent tiles from floating unrealistically
+  // Limit elevation differences between adjacent tiles to maximum 1
+  const maxIterations = 3;
+
+  for (let iteration = 0; iteration < maxIterations; iteration++) {
+    for (let y = 0; y < boardSize; y++) {
+      for (let x = 0; x < boardSize; x++) {
+        const tile = boardData[y][x];
+        const neighbors = getAdjacentTiles(tile);
+
+        if (neighbors.length === 0) continue;
+
+        // Calculate average elevation of neighbors
+        const neighborElevations = neighbors.map(n => n.elevation);
+        const avgElevation = neighborElevations.reduce((sum, elev) => sum + elev, 0) / neighborElevations.length;
+
+        // Limit the difference to maximum 1
+        const maxDiff = 1;
+        if (tile.elevation > avgElevation + maxDiff) {
+          tile.elevation = Math.floor(avgElevation + maxDiff);
+        } else if (tile.elevation < avgElevation - maxDiff) {
+          tile.elevation = Math.floor(avgElevation - maxDiff);
+        }
+
+        // Ensure elevation stays within reasonable bounds
+        tile.elevation = Math.max(-2, Math.min(5, tile.elevation));
+      }
+    }
+  }
+}
+
 function generateBoard() {
   boardData.length = 0;
   seed = Math.floor(Math.random() * 999999);
@@ -461,7 +508,7 @@ function generateBoard() {
     const row = [];
     for (let x = 0; x < boardSize; x += 1) {
       const biome = biomeTypes[Math.floor(seededRandom() * biomeTypes.length)];
-      const elevation = biome.elevation + Math.floor(seededRandom() * 2);
+      const elevation = biome.elevation + Math.floor(seededRandom() * 1.5); // Reduced randomness
       const tile = {
         x,
         y,
@@ -483,6 +530,9 @@ function generateBoard() {
     }
     boardData.push(row);
   }
+
+  // Smooth elevations to prevent unrealistic floating tiles
+  smoothElevations();
 
   buildWorldMeshes();
   updateUI();
