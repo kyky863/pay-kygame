@@ -137,6 +137,7 @@ body {
       <p id="weatherText"></p>
       <p id="stormScheduleText"></p>
       <p id="stormWarning" class="storm-warning"></p>
+      <p id="stormLogText"></p>
     </div>
 
     <div class="controls">
@@ -278,6 +279,34 @@ const biomeTypes = [
     color: '#654321',
     icon: '🔥',
     elevation: 1
+  },
+
+  {
+    name: 'Chasm',
+    color: '#0f172a',
+    icon: '🕳️',
+    elevation: -2
+  },
+
+  {
+    name: 'Young Forest',
+    color: '#9bbf74',
+    icon: '🌱',
+    elevation: 0
+  },
+
+  {
+    name: 'Dense Forest',
+    color: '#0f4b2d',
+    icon: '🌲',
+    elevation: 3
+  },
+
+  {
+    name: 'Heavy Forest',
+    color: '#052c18',
+    icon: '🌲',
+    elevation: 4
   },
 
   {
@@ -425,21 +454,120 @@ const terrainProgression = {
 
 };
 
-function processTerrainGrowth(tile) {
-  const progression = terrainProgression[tile.terrain];
-  if (!progression || tile.crem < progression.threshold) return;
-
-  tile.terrain = progression.next;
-  
-  // Find the new biome to get updated color
-  const newBiome = biomeTypes.find(b => b.name === tile.terrain);
+function setTerrain(tile, terrainName) {
+  tile.terrain = terrainName;
+  const newBiome = biomeTypes.find(b => b.name === terrainName);
   if (newBiome) {
     tile.color = newBiome.color;
     tile.icon = newBiome.icon;
     tile.elevation = newBiome.elevation;
   }
-  
+}
+
+function processTerrainGrowth(tile) {
+  const progression = terrainProgression[tile.terrain];
+  if (!progression || tile.crem < progression.threshold) return;
+
+  setTerrain(tile, progression.next);
   tile.crem = 0;
+}
+
+function getAdjacentTiles(tile) {
+  const neighbors = [];
+  const directions = [
+    [0, -1],
+    [0, 1],
+    [-1, 0],
+    [1, 0],
+    [-1, -1],
+    [-1, 1],
+    [1, -1],
+    [1, 1]
+  ];
+
+  directions.forEach(([dx, dy]) => {
+    const nx = tile.x + dx;
+    const ny = tile.y + dy;
+    if (nx >= 0 && nx < boardSize && ny >= 0 && ny < boardSize) {
+      neighbors.push(boardData[ny][nx]);
+    }
+  });
+
+  return neighbors;
+}
+
+function isForestTile(tile) {
+  const forestTerrains = ['Forest', 'Hilly Forest', 'Mountain Forest'];
+  return (
+    forestTerrains.includes(tile.terrain) ||
+    tile.forestCover === 'Young Forest' ||
+    tile.forestCover === 'Forest' ||
+    tile.forestCover === 'Dense Forest' ||
+    tile.forestCover === 'Heavy Forest'
+  );
+}
+
+function processForestSpread(tile) {
+  if (tile.terrain === 'Chasm' || tile.terrain === 'Burned Forest') return;
+
+  const adjacent = getAdjacentTiles(tile);
+  const forestNeighbors = adjacent.filter(isForestTile).length;
+
+  if (!tile.forestCover) {
+    if (forestNeighbors > 0 && seededRandom() > 0.8) {
+      tile.forestCover = 'Young Forest';
+    }
+    return;
+  }
+
+  if (tile.forestCover === 'Young Forest') {
+    if (forestNeighbors >= 2 && seededRandom() > 0.5) {
+      tile.forestCover = 'Forest';
+    }
+  } else if (tile.forestCover === 'Forest') {
+    if (forestNeighbors >= 3 && seededRandom() > 0.5) {
+      tile.forestCover = 'Dense Forest';
+    }
+  } else if (tile.forestCover === 'Dense Forest') {
+    if (forestNeighbors >= 3 && seededRandom() > 0.7) {
+      tile.forestCover = 'Heavy Forest';
+    }
+  }
+}
+
+function processHighstormCollapse(tile) {
+  if (tile.terrain === 'Chasm') return;
+
+  const adjacent = getAdjacentTiles(tile);
+  const erosionNeighbors = adjacent.filter(neighbor =>
+    neighbor.waterLevel > 70 ||
+    ['Wetlands', 'Rocky Wetlands', 'Cliffside', 'Mountains'].includes(neighbor.terrain)
+  ).length;
+
+  if (erosionNeighbors < 3) return;
+
+  if (seededRandom() > 0.5) {
+    tile.collapseChance += 0.03 + seededRandom() * 0.02;
+  }
+
+  if (seededRandom() < tile.collapseChance) {
+    setTerrain(tile, 'Chasm');
+    tile.forestCover = null;
+    tile.hazard = null;
+    tile.collapseChance = 0;
+  }
+}
+
+function processChasmFill(tile) {
+  if (tile.terrain !== 'Chasm') return;
+
+  if (
+    (tile.waterLevel > 90 && seededRandom() > 0.96) ||
+    (tile.crem > 200 && seededRandom() > 0.98)
+  ) {
+    setTerrain(tile, 'Wetlands');
+    tile.collapseChance = 0;
+  }
 }
 
 function processHazardHealing(tile) {
@@ -521,20 +649,18 @@ function startStorm(type) {
       // Process terrain growth from crem accumulation
       processTerrainGrowth(tile);
       processHazardHealing(tile);
+      processChasmFill(tile);
 
-      // Everstorm fire ignition
-      if (type === 'Everstorm' && tile.terrain.includes('Forest') && seededRandom() > 0.85) {
-        tile.terrain = 'Burned Forest';
-        const newBiome = biomeTypes.find(b => b.name === tile.terrain);
-        if (newBiome) {
-          tile.color = newBiome.color;
-          tile.icon = newBiome.icon;
-          tile.elevation = newBiome.elevation;
-        }
+      if (type === 'Everstorm' && isForestTile(tile) && seededRandom() > 0.85) {
+        setTerrain(tile, 'Burned Forest');
+        tile.forestCover = null;
       }
 
-      // hazards become more likely
-      if (seededRandom() > 0.92) {
+      if (type === 'Highstorm') {
+        processHighstormCollapse(tile);
+      }
+
+      if (seededRandom() > (type === 'Everstorm' ? 0.8 : 0.94)) {
         tile.hazard = 'lightning_blasted';
       }
 
@@ -610,6 +736,12 @@ function generateBoard() {
 
         hazard: null,
 
+        forestCover: ['Forest', 'Hilly Forest', 'Mountain Forest', 'Young Forest', 'Dense Forest', 'Heavy Forest'].includes(biome.name)
+          ? (['Young Forest', 'Dense Forest', 'Heavy Forest'].includes(biome.name) ? biome.name : 'Forest')
+          : null,
+
+        collapseChance: 0,
+
         stability: 50 + Math.floor(seededRandom() * 50)
 
       });
@@ -675,9 +807,13 @@ function renderBoard() {
 
     } else {
 
-      div.style.background = tile.color;
+      const forestOverlay = tile.forestCover
+        ? biomeTypes.find(b => b.name === tile.forestCover)
+        : null;
 
-      const textColor = getContrastColor(tile.color);
+      div.style.background = forestOverlay ? forestOverlay.color : tile.color;
+
+      const textColor = getContrastColor(div.style.background);
 
       div.style.color = textColor;
 
@@ -686,12 +822,13 @@ function renderBoard() {
       div.innerHTML = `
 
         <div class="terrain-icon">
-          ${tile.icon}
+          ${forestOverlay ? forestOverlay.icon + ' ' : ''}${tile.icon}
         </div>
 
         <div class="tile-info">
 
           <strong>${tile.terrain}</strong><br>
+          ${tile.forestCover ? `${tile.forestCover}<br>` : ''}
 
           X:${tile.x} Y:${tile.y}<br>
 
@@ -710,7 +847,8 @@ function renderBoard() {
 
       div.title = `
 Terrain: ${tile.terrain}
-Coordinates: ${tile.x}, ${tile.y}
+${tile.forestCover ? `Forest Cover: ${tile.forestCover}
+` : ''}Coordinates: ${tile.x}, ${tile.y}
 Elevation: ${tile.elevation}
 Crem: ${tile.crem}
 Water: ${tile.waterLevel}
@@ -737,6 +875,29 @@ function getContrastColor(bgColor) {
   return luminance > 0.5 ? 'black' : 'white';
 }
 
+function getCollapseInfo() {
+  let riskTiles = 0;
+  let totalChance = 0;
+  let maxChance = 0;
+
+  boardData.flat().forEach(tile => {
+    if (tile.collapseChance > 0) {
+      riskTiles += 1;
+      totalChance += tile.collapseChance;
+      maxChance = Math.max(maxChance, tile.collapseChance);
+    }
+  });
+
+  if (riskTiles === 0) {
+    return 'Chasm risk: none detected.';
+  }
+
+  const avgChance = (totalChance / riskTiles) * 100;
+  return `Chasm risk: ${riskTiles} tile(s) at risk — avg ${avgChance.toFixed(1)}%, max ${(
+    maxChance * 100
+  ).toFixed(1)}%.`;
+}
+
 // =========================
 // TIME SYSTEM
 // =========================
@@ -759,10 +920,18 @@ function updateTime() {
         tile.crem += Math.floor(seededRandom() * 5);
         processTerrainGrowth(tile);
         processHazardHealing(tile);
+        processForestSpread(tile);
+        processChasmFill(tile);
       });
     });
 
     if (!stormType) {
+      if (currentDay > nextEverstormDay) {
+        nextEverstormDay = scheduleEverstorm(currentDay);
+      }
+      if (currentDay > nextHighstormDay) {
+        nextHighstormDay = scheduleHighstorm(currentDay);
+      }
 
       if (currentDay === nextEverstormDay) {
         startStorm('Everstorm');
@@ -840,6 +1009,8 @@ function updateUI() {
 
   document.getElementById('stormScheduleText').innerText =
     `Highstorm Window: Day ${nextHighstormWarningDay}-${nextHighstormDay} | Everstorm: Day ${nextEverstormDay}`;
+
+  document.getElementById('stormLogText').innerText = getCollapseInfo();
 
   if (stormType) {
 
