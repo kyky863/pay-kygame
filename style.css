@@ -28,9 +28,11 @@ body {
 #ui {
   position: absolute;
   top: 16px;
+  bottom: 16px;
   left: 16px;
   right: auto;
   max-width: 360px;
+  height: calc(100vh - 32px);
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -39,6 +41,7 @@ body {
 
 #topbar {
   display: flex;
+  flex: 0 0 auto;
   justify-content: space-between;
   gap: 12px;
   padding: 18px;
@@ -86,7 +89,8 @@ button:hover {
 
 #tileInfo {
   padding: 18px;
-  max-height: calc(100vh - 190px);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   border-radius: 24px;
   backdrop-filter: blur(18px);
@@ -107,6 +111,44 @@ button:hover {
   color: #e2e8f0;
 }
 
+.tile-info-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tile-info-header strong {
+  flex: 1;
+}
+
+#clearTileButton {
+  display: grid;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: none;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+#clearTileButton:hover {
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: none;
+}
+
+#clearTileButton:disabled,
+#clearTileButton:disabled:hover {
+  cursor: default;
+  opacity: 0.38;
+  transform: none;
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .region-name {
   display: inline-block;
   margin: 4px 0;
@@ -114,8 +156,22 @@ button:hover {
   font-weight: 700;
 }
 
+.region-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  background: var(--region-color);
+  vertical-align: 1px;
+}
+
 .rules-heading {
+  display: block;
   margin-top: 10px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .tactical-table {
@@ -145,7 +201,32 @@ button:hover {
   line-height: 1.4;
 }
 
+.collapse-risk {
+  margin-top: 10px;
+}
+
+.risk-level {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.risk-level span:first-child {
+  flex: 0 0 auto;
+  color: #f6e6aa;
+  font-weight: 600;
+}
+
+.risk-level span:last-child {
+  text-align: right;
+}
+
 #timeControl {
+  flex: 0 0 auto;
   padding: 18px;
   border-radius: 24px;
   backdrop-filter: blur(18px);
@@ -205,6 +286,8 @@ button:hover {
   #ui {
     left: 10px;
     right: 10px;
+    bottom: 10px;
+    height: calc(100vh - 20px);
   }
 
   #topbar {

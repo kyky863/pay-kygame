@@ -56,6 +56,17 @@ The new prototype is intentionally organized in `main.js` with these sections:
 - `updateUI()`
   - display game state, selected tile data, and storm information.
 
+## Two-layer terrain
+
+- `generateRegions()` seeds 16 region centers and expands them over neighboring hexes with a multi-source flood fill, guaranteeing contiguous regions. Region effects are shared by all hexes with the same region ID.
+- Every region owns a `baseElevation` in the `0`–`MAX_REGION_BASE_ELEVATION` range (currently 10); high bases are preserved and lower neighbors rise into a one-level gradient. Normal hexes vary by at most `MAX_LOCAL_ELEVATION_DEVIATION` (0.5), with a boundary falloff that eases toward adjacent region bases.
+- `sampleWorldFields()` uses smooth, seeded noise fields for height, moisture, temperature, rockiness, and chasms. `chooseBiome()` derives each hex's local terrain from those fields, so neighboring terrain tends to transition naturally.
+- Each tile stores both `region` and local fields such as `terrain`, `elevation`, `forestCover`, `obstacle`, and `waterLevel`.
+- `buildTileCornerElevations()` assigns shared heights to the corners of neighboring hexes, ignoring chasm floors when calculating normal land corners. `createTileMesh()` triangulates normal terrain; chasms use a separate steep-walled basin mesh at `CHASM_ELEVATION` and never receive forest cover.
+- `getTacticalEffects()` keeps regional combat modifiers separate from local terrain and elevation effects, then calculates the combined result shown by `updateUI()`.
+- `addRegionBoundaries()` draws colored borders above the terrain. Tile colors retain their biome identity with a subtle tint from the containing region.
+- `setTerrain()` keeps CREM terrain changes local and bounded. If a CREM progression would push a tile past its local elevation allowance, `processTerrainGrowth()` transfers its accumulated CREM to adjacent hexes with room to progress. Chasm generation/spread, high-storm collapse, isolated-chasm prevention, and water/CREM filling remain active. Regions reclassify as Chasm Regions at `CHASM_REGION_THRESHOLD` (0.35).
+
 ## Recommended future feature slots
 
 - `selectedTile` and `highlightTile()`
