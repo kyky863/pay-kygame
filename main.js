@@ -39,6 +39,7 @@ let devView = false;
 let seed = Math.floor(Math.random() * 999999);
 
 const boardData = [];
+const regions = new Map();
 const tileMeshes = [];
 const waterMeshes = [];
 const forestMeshes = [];
@@ -204,6 +205,14 @@ const biomeTypes = [
   { name: 'Ancient Crem Fields', color: '#5b4636', icon: '🪨', elevation: 3 }
 ];
 
+const regionSize = 5;
+const regionProfiles = [
+  { name: 'Open Steppe', icon: '◈', modifiers: { mounted: 15, foot: 0, light: 5 } },
+  { name: 'Broken Highlands', icon: '▲', modifiers: { mounted: -10, foot: 10, light: 5 } },
+  { name: 'Deepwood Reach', icon: '♣', modifiers: { mounted: -10, foot: 5, light: 15 } },
+  { name: 'Lowland March', icon: '≈', modifiers: { mounted: -5, foot: 5, light: 10 } }
+];
+
 const terrainProgression = {
   'Plains': { next: 'Crem Flats', threshold: 100 },
   'Crem Flats': { next: 'Crem Hills', threshold: 175 },
@@ -236,6 +245,42 @@ function getHexPosition(x, y) {
   const offsetX = hexRadius * 1.5 * x;
   const offsetZ = Math.sqrt(3) * hexRadius * (y + (x % 2 === 0 ? 0 : 0.5));
   return new THREE.Vector3(offsetX, 0, offsetZ).sub(boardCenterOffset);
+}
+
+function getRegion(x, y) {
+  const column = Math.floor(x / regionSize);
+  const row = Math.floor(y / regionSize);
+  const id = `${column}:${row}`;
+  if (!regions.has(id)) {
+    const profile = regionProfiles[Math.floor(seededRandom() * regionProfiles.length)];
+    regions.set(id, { id, name: profile.name, icon: profile.icon, modifiers: profile.modifiers });
+  }
+  return regions.get(id);
+}
+
+function getTacticalEffects(tile, unitType) {
+  const regionBonus = tile.region.modifiers[unitType];
+  const highGroundBonus = Math.min(25, Math.max(0, tile.elevation) * 5);
+  const hasTrees = Boolean(tile.forestCover);
+  const coverBonus = hasTrees ? 15 : 0;
+  const classTerrainBonus = hasTrees && unitType === 'light' ? 5 : 0;
+  const blocked = tile.obstacle === 'Boulder' && unitType === 'mounted';
+  let movementTax = Math.max(0, tile.elevation - 2);
+
+  if (hasTrees && unitType === 'mounted') movementTax += 2;
+  if (hasTrees && unitType === 'foot') movementTax += 1;
+  if (tile.obstacle === 'Boulder') movementTax += unitType === 'light' ? 1 : 2;
+
+  return {
+    combatBonus: regionBonus + highGroundBonus + coverBonus + classTerrainBonus,
+    movement: blocked ? 'Blocked' : `${1 + movementTax} AP`,
+    breakdown: [
+      `Region ${regionBonus >= 0 ? '+' : ''}${regionBonus}%`,
+      highGroundBonus ? `High ground +${highGroundBonus}% defense` : null,
+      coverBonus ? `Tree cover +${coverBonus}% defense` : null,
+      classTerrainBonus ? 'Climbing +5% combat' : null
+    ].filter(Boolean)
+  };
 }
 
 function isForestTile(tile) {
@@ -447,6 +492,68 @@ function createTileMesh(tile) {
   return mesh;
 }
 
+function createElevationTransition(tile, neighborTile, edgeIndex) {
+  if (!neighborTile || tile.elevation === neighborTile.elevation) return null;
+
+  const tilePos = getHexPosition(tile.x, tile.y);
+  const neighborPos = getHexPosition(neighborTile.x, neighborTile.y);
+  
+  const tileElev = tile.elevation * elevationScale + tileThickness * 0.5;
+  const neighborElev = neighborTile.elevation * elevationScale + tileThickness * 0.5;
+  
+  // Calculate the edge position (simplified - just create a small ramp along the edge)
+  const direction = neighborPos.clone().sub(tilePos).normalize();
+  const perpendicular = new THREE.Vector3(-direction.z, 0, direction.x).normalize();
+  
+  // Create a small triangular ramp
+  const rampWidth = hexRadius * 0.3; // Small width along the edge
+  const rampLength = direction.length() * hexRadius * 0.8; // Length connecting the tiles
+  
+  const geometry = new THREE.PlaneGeometry(rampLength, rampWidth, 4, 2);
+  
+  // Modify vertices to create elevation transition
+  const vertices = geometry.attributes.position.array;
+  for (let i = 0; i < vertices.length; i += 3) {
+    const x = vertices[i]; // Along the ramp
+    const y = vertices[i + 1]; // Up/down
+    const z = vertices[i + 2]; // Width
+    
+    // Create linear interpolation from tile elevation to neighbor elevation
+    const t = (x + rampLength/2) / rampLength;
+    const interpolatedElev = tileElev + (neighborElev - tileElev) * t;
+    
+    vertices[i + 1] = interpolatedElev;
+  }
+  
+  geometry.attributes.position.needsUpdate = true;
+  geometry.computeVertexNormals();
+  
+  // Blend colors
+  const color1 = new THREE.Color(tile.color);
+  const color2 = new THREE.Color(neighborTile.color);
+  const blendedColor = color1.clone().lerp(color2, 0.5);
+  
+  const material = new THREE.MeshStandardMaterial({
+    color: blendedColor,
+    roughness: 0.7,
+    metalness: 0.05,
+    flatShading: false
+  });
+  
+  const mesh = new THREE.Mesh(geometry, material);
+  
+  // Position at the edge between tiles
+  const edgeCenter = tilePos.clone().add(neighborPos).multiplyScalar(0.5);
+  mesh.position.copy(edgeCenter);
+  mesh.lookAt(neighborPos);
+  mesh.rotateX(Math.PI / 2);
+  
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  
+  return mesh;
+}
+
 function createWaterPlane(tile, position) {
   const geometry = new THREE.CircleGeometry(hexRadius * 0.86, 32);
   const material = new THREE.MeshStandardMaterial({
@@ -485,6 +592,42 @@ function createTreePrototype() {
   return tree;
 }
 
+function createBoulderMesh(tile, position) {
+  const rock = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(0.65, 0),
+    new THREE.MeshStandardMaterial({ color: '#77766f', roughness: 0.95, flatShading: true })
+  );
+  rock.position.set(position.x, tile.elevation * elevationScale + 0.55, position.z);
+  rock.scale.set(1.25, 0.9, 1);
+  rock.castShadow = true;
+  rock.receiveShadow = true;
+  return rock;
+}
+
+function addRegionBoundaries() {
+  boardData.flat().forEach(tile => {
+    getAdjacentTiles(tile).forEach(neighbor => {
+      if (tile.region.id === neighbor.region.id) return;
+      if (tile.x > neighbor.x || (tile.x === neighbor.x && tile.y > neighbor.y)) return;
+
+      const center = getHexPosition(tile.x, tile.y);
+      const direction = getHexPosition(neighbor.x, neighbor.y).sub(center).normalize();
+      const edgeCenter = center.addScaledVector(direction, hexRadius * Math.sqrt(3) / 2);
+      edgeCenter.y = Math.max(tile.elevation, neighbor.elevation) * elevationScale + tileThickness + 0.1;
+      const tangent = new THREE.Vector3(-direction.z, 0, direction.x).multiplyScalar(hexRadius * 0.5);
+      const geometry = new THREE.BufferGeometry().setFromPoints([
+        edgeCenter.clone().sub(tangent),
+        edgeCenter.clone().add(tangent)
+      ]);
+      const boundary = new THREE.Line(
+        geometry,
+        new THREE.LineBasicMaterial({ color: '#f6e6aa', transparent: true, opacity: 0.8 })
+      );
+      worldGroup.add(boundary);
+    });
+  });
+}
+
 function buildWorldMeshes() {
   while (worldGroup.children.length > 0) {
     const child = worldGroup.children[0];
@@ -509,6 +652,20 @@ function buildWorldMeshes() {
       tileMeshes.push(tileMesh);
       worldGroup.add(tileMesh);
 
+      // Create elevation transitions to neighboring tiles with different elevations
+      const adjacentTiles = getAdjacentTiles(tile);
+      adjacentTiles.forEach((neighborTile, edgeIndex) => {
+        if (neighborTile && tile.elevation !== neighborTile.elevation) {
+          // Only create transition if this tile has lower or equal elevation to avoid duplicates
+          if (tile.elevation <= neighborTile.elevation) {
+            const transition = createElevationTransition(tile, neighborTile, edgeIndex);
+            if (transition) {
+              worldGroup.add(transition);
+            }
+          }
+        }
+      });
+
       if (tile.waterLevel > 30 || tile.terrain.includes('Wetlands')) {
         const water = createWaterPlane(tile, tilePos);
         water.position.y = tileMesh.position.y + 0.18 + tile.waterLevel * 0.01;
@@ -528,8 +685,14 @@ function buildWorldMeshes() {
           worldGroup.add(tree);
         }
       }
+
+      if (tile.obstacle === 'Boulder') {
+        worldGroup.add(createBoulderMesh(tile, tilePos));
+      }
     });
   });
+
+  addRegionBoundaries();
 }
 
 function updateTileVisual(tile) {
@@ -621,6 +784,7 @@ function calculateGeneratedElevation(biome, neighbors) {
 
 function generateBoard() {
   boardData.length = 0;
+  regions.clear();
   seed = Math.floor(Math.random() * 999999);
   currentDay = 1;
   timeOfDay = 8;
@@ -655,9 +819,14 @@ function generateBoard() {
       if (biome.name === 'Chasm') {
         elevation = Math.max(-2, Math.min(0, elevation));
       }
+      const region = getRegion(x, y);
+      const hasBoulder = !['Chasm', 'Wetlands', 'Rocky Wetlands'].includes(biome.name) &&
+        !['Forest', 'Hilly Forest', 'Mountain Forest'].includes(biome.name) && seededRandom() < 0.045;
       const tile = {
         x,
         y,
+        region,
+        obstacle: hasBoulder ? 'Boulder' : null,
         terrain: biome.name,
         icon: biome.icon,
         color: biome.color,
@@ -688,17 +857,31 @@ function updateUI() {
   const statusText = document.getElementById('statusText');
   const tileDetails = document.getElementById('tileDetails');
 
-  statusText.innerText = `Day ${currentDay} · ${timeOfDay.toFixed(1)}h · ${weather} · ${stormType ? stormType + ' ongoing' : 'No storm'}`;
+  statusText.innerText = `Day ${currentDay} · ${timeOfDay.toFixed(1)}h · ${weather} · ${regions.size} regions · ${stormType ? stormType + ' ongoing' : 'No storm'}`;
 
   if (selectedTile) {
+    const unitTypes = [
+      ['Mounted', 'mounted'],
+      ['Foot', 'foot'],
+      ['Light', 'light']
+    ];
+    const tacticalRows = unitTypes.map(([label, type]) => {
+      const effects = getTacticalEffects(selectedTile, type);
+      return `<tr><th>${label}</th><td>${effects.combatBonus >= 0 ? '+' : ''}${effects.combatBonus}%</td><td>${effects.movement}</td></tr>`;
+    }).join('');
     tileDetails.innerHTML = `
       <strong>${selectedTile.terrain}</strong> ${selectedTile.icon}<br>
+      <span class="region-name">${selectedTile.region.icon} ${selectedTile.region.name}</span><br>
       X:${selectedTile.x} Y:${selectedTile.y}<br>
       Elevation: ${selectedTile.elevation}<br>
       Water: ${selectedTile.waterLevel}<br>
       Crem: ${selectedTile.crem}<br>
       ${selectedTile.hazard ? '⚡ ' + selectedTile.hazard + '<br>' : ''}
       ${selectedTile.forestCover ? '🌲 ' + selectedTile.forestCover + '<br>' : ''}
+      ${selectedTile.obstacle ? `Obstacle: ${selectedTile.obstacle}<br>` : ''}
+      <strong class="rules-heading">Example troop effects</strong>
+      <table class="tactical-table"><thead><tr><th>Class</th><th>Combat</th><th>Move</th></tr></thead><tbody>${tacticalRows}</tbody></table>
+      <span class="rules-note">Combat combines region affinity, high-ground defense, and cover. Light troops climb through trees; boulders block mounted troops.</span><br>
       ${getCollapseInfo()}
     `;
   } else {

@@ -86,6 +86,8 @@ button:hover {
 
 #tileInfo {
   padding: 18px;
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
   border-radius: 24px;
   backdrop-filter: blur(18px);
   background: rgba(15, 23, 42, 0.78);
@@ -103,6 +105,44 @@ button:hover {
 #tileDetails {
   margin-top: 6px;
   color: #e2e8f0;
+}
+
+.region-name {
+  display: inline-block;
+  margin: 4px 0;
+  color: #f6e6aa;
+  font-weight: 700;
+}
+
+.rules-heading {
+  margin-top: 10px;
+}
+
+.tactical-table {
+  width: 100%;
+  margin: 6px 0;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  text-align: left;
+}
+
+.tactical-table th,
+.tactical-table td {
+  padding: 5px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.tactical-table th {
+  color: #f6e6aa;
+  font-weight: 600;
+}
+
+.rules-note {
+  display: block;
+  margin: 5px 0 9px;
+  color: #cbd5e1;
+  font-size: 0.82rem;
+  line-height: 1.4;
 }
 
 #timeControl {

@@ -553,8 +553,15 @@ function processTerrainGrowth(tile) {
   const progression = terrainProgression[tile.terrain];
   if (!progression || tile.crem < progression.threshold) return;
 
-  setTerrain(tile, progression.next);
-  tile.crem = 0;
+  const nextBiome = biomeTypes.find(b => b.name === progression.next);
+  if (!nextBiome) return;
+
+  if (isElevationCompatible(nextBiome.elevation, tile)) {
+    setTerrain(tile, progression.next);
+    tile.crem = 0;
+  } else {
+    spillCremToNeighbors(tile, Math.min(tile.crem, progression.threshold));
+  }
 }
 
 function getAdjacentTiles(tile) {
@@ -587,6 +594,40 @@ function getAdjacentTiles(tile) {
   });
 
   return neighbors;
+}
+
+function isElevationCompatible(targetElevation, tile) {
+  return getAdjacentTiles(tile).every(neighbor =>
+    Math.abs(neighbor.elevation - targetElevation) <= 1
+  );
+}
+
+function spillCremToNeighbors(tile, amount) {
+  const targets = getAdjacentTiles(tile)
+    .filter(neighbor => neighbor.terrain !== 'Chasm')
+    .sort((a, b) => a.elevation - b.elevation);
+
+  if (!targets.length || amount <= 0) return;
+
+  const spillPerTile = Math.ceil(amount / targets.length);
+  targets.forEach(neighbor => {
+    neighbor.crem += spillPerTile;
+  });
+  tile.crem = Math.max(0, tile.crem - spillPerTile * targets.length);
+}
+
+function findBestTerrainForElevation(desiredElevation, tile) {
+  const nonChasmBiomes = biomeTypes.filter(b => b.name !== 'Chasm');
+  const compatibleBiomes = nonChasmBiomes.filter(b =>
+    isElevationCompatible(b.elevation, tile)
+  );
+
+  const candidates = compatibleBiomes.length ? compatibleBiomes : nonChasmBiomes;
+  candidates.sort((a, b) =>
+    Math.abs(a.elevation - desiredElevation) - Math.abs(b.elevation - desiredElevation)
+  );
+
+  return candidates[0] || biomeTypes.find(b => b.name === 'Wetlands');
 }
 
 function isForestTile(tile) {
@@ -658,8 +699,22 @@ function processChasmFill(tile) {
     (tile.waterLevel > 90 && seededRandom() > 0.96) ||
     (tile.crem > 200 && seededRandom() > 0.98)
   ) {
-    setTerrain(tile, 'Wetlands');
+    const adjacent = getAdjacentTiles(tile).filter(neighbor => neighbor.terrain !== 'Chasm');
+    const averageNeighborElevation = adjacent.length
+      ? Math.round(
+          adjacent.reduce((sum, neighbor) => sum + neighbor.elevation, 0) /
+            adjacent.length
+        )
+      : 0;
+
+    const fillBiome = findBestTerrainForElevation(
+      Math.max(0, averageNeighborElevation),
+      tile
+    );
+    setTerrain(tile, fillBiome.name);
     tile.collapseChance = 0;
+    tile.crem = 0;
+    tile.waterLevel = Math.max(0, tile.waterLevel - 30);
   }
 }
 
@@ -851,10 +906,43 @@ function generateBoard() {
   }
 
   createStartingUnits();
+  normalizeBoardElevations();
 
   renderBoard();
   updateUI();
   updateLighting();
+}
+
+function normalizeBoardElevations() {
+  let changed = true;
+  let passes = 0;
+
+  while (changed && passes < 5) {
+    changed = false;
+    passes += 1;
+
+    boardData.forEach(row => {
+      row.forEach(tile => {
+        if (tile.terrain === 'Chasm') return;
+
+        if (!isElevationCompatible(tile.elevation, tile)) {
+          const adjacent = getAdjacentTiles(tile).filter(neighbor => neighbor.terrain !== 'Chasm');
+          const averageNeighborElevation = adjacent.length
+            ? Math.round(
+                adjacent.reduce((sum, neighbor) => sum + neighbor.elevation, 0) /
+                  adjacent.length
+              )
+            : tile.elevation;
+
+          const bestBiome = findBestTerrainForElevation(averageNeighborElevation, tile);
+          if (bestBiome && bestBiome.name !== tile.terrain) {
+            setTerrain(tile, bestBiome.name);
+            changed = true;
+          }
+        }
+      });
+    });
+  }
 }
 
 // =========================
