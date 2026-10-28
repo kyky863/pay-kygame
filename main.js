@@ -52,12 +52,11 @@ const regionGrid = [];
 const regionBoundaryDistances = [];
 const tileMeshes = [];
 const waterMeshes = [];
-const forestMeshes = [];
 
 // ----- THREE.JS SETUP -----
 const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2('#a8d8ff', 0.020);
+scene.fog = new THREE.FogExp2('#b7c8ce', 0.009);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 300);
 camera.position.set(30, 42, 36);
@@ -65,9 +64,12 @@ camera.position.set(30, 42, 36);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.setClearColor('#7db3ff', 1);
+renderer.setClearColor('#b7c8ce', 1);
 container.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -175,7 +177,7 @@ directionalLight.shadow.camera.top = 40;
 directionalLight.shadow.camera.bottom = -40;
 scene.add(directionalLight);
 
-const fillLight = new THREE.HemisphereLight('#cde7ff', '#14213d', 0.35);
+const fillLight = new THREE.HemisphereLight('#dce9ef', '#35402f', 0.55);
 scene.add(fillLight);
 
 const groundPlane = new THREE.Mesh(
@@ -263,6 +265,11 @@ const terrainProgression = {
 function seededRandom() {
   const value = Math.sin(seed++) * 10000;
   return value - Math.floor(value);
+}
+
+function createTileRandom(x, y) {
+  let index = 0;
+  return () => noiseHash(x * 97 + index * 13, y * 89 - index * 7, index++);
 }
 
 function getContrastColor(hexColor) {
@@ -789,9 +796,102 @@ function buildTileCornerElevations() {
   });
 }
 
+const terrainTextureCache = new Map();
+
+function getTerrainTexture(surface) {
+  if (terrainTextureCache.has(surface)) return terrainTextureCache.get(surface);
+
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Unable to create terrain texture canvas.');
+
+  const image = context.createImageData(size, size);
+  const surfaceOffsets = { grass: 11, forest: 29, soil: 47, rock: 71, wetland: 89, ash: 107 };
+  const offset = surfaceOffsets[surface] ?? 131;
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const index = (y * size + x) * 4;
+      const largeGrain = Math.sin((x + offset) * Math.PI * 2 / 64) * Math.sin((y - offset) * Math.PI * 2 / 48);
+      const fineGrain = Math.sin((x * 7 + y * 11 + offset) * 0.19);
+      const randomGrain = Math.sin(x * 127.1 + y * 311.7 + offset * 74.7) * 43758.5453;
+      const speckle = (randomGrain - Math.floor(randomGrain)) - 0.5;
+      const directionalGrain = surface === 'rock'
+        ? Math.sin((x + y * 0.42 + offset) * 0.11) * 0.18
+        : surface === 'grass' || surface === 'forest'
+          ? Math.sin((x * 0.3 + y + offset) * 0.17) * 0.1
+          : 0;
+      let luminance = 206 + largeGrain * 15 + fineGrain * 8 + speckle * 42 + directionalGrain * 40;
+      if (surface === 'rock' && Math.abs(Math.sin((x - y * 0.7 + offset) * 0.07)) < 0.025) luminance -= 24;
+      if (surface === 'soil' && speckle > 0.43) luminance -= 28;
+      luminance = clamp(Math.round(luminance), 128, 255);
+      image.data[index] = luminance;
+      image.data[index + 1] = luminance;
+      image.data[index + 2] = luminance;
+      image.data[index + 3] = 255;
+    }
+  }
+  context.putImageData(image, 0, 0);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 4);
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  terrainTextureCache.set(surface, texture);
+  return texture;
+}
+
+function getTerrainSurfaceType(terrain) {
+  if (['Mountains', 'Mountain Forest', 'Rocky Wetlands', 'Stone Forest', 'Cliffside', 'Ancient Crem Fields', 'Crem Hills'].includes(terrain)) return 'rock';
+  if (terrain === 'Chasm') return 'rock';
+  if (terrain === 'Wetlands') return 'wetland';
+  if (terrain === 'Forest' || terrain === 'Hilly Forest') return 'forest';
+  if (terrain === 'Burned Forest') return 'ash';
+  if (terrain === 'Crem Flats' || terrain === 'Dust Basin') return 'soil';
+  return 'grass';
+}
+
+function addWorldUvAttribute(geometry, positions, centerX, centerZ) {
+  const mapSize = 100;
+  const uvs = [];
+  for (let index = 0; index < positions.length; index += 3) {
+    uvs.push(
+      (positions[index] + centerX + mapSize / 2) / mapSize,
+      (positions[index + 2] + centerZ + mapSize / 2) / mapSize
+    );
+  }
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+}
+
+function sampleTileSurfacePoint(tile, random) {
+  const center = getHexPosition(tile.x, tile.y);
+  const sector = Math.floor(random() * 6);
+  const nextSector = (sector + 1) % 6;
+  const angleA = sector * Math.PI / 3;
+  const angleB = nextSector * Math.PI / 3;
+  const rootSample = Math.sqrt(random());
+  const cornerWeightA = rootSample * (1 - random());
+  const cornerWeightB = rootSample - cornerWeightA;
+  const centerWeight = 1 - rootSample;
+  const cornerA = tile.cornerElevations[sector];
+  const cornerB = tile.cornerElevations[nextSector];
+  const elevation = tile.elevation * centerWeight + cornerA * cornerWeightA + cornerB * cornerWeightB;
+
+  return {
+    x: center.x + hexRadius * (Math.cos(angleA) * cornerWeightA + Math.cos(angleB) * cornerWeightB),
+    y: elevation * elevationScale + TERRAIN_TOP_OFFSET,
+    z: center.z + hexRadius * (Math.sin(angleA) * cornerWeightA + Math.sin(angleB) * cornerWeightB)
+  };
+}
+
 function createTileMesh(tile) {
   if (tile.terrain === 'Chasm') return createChasmTileMesh(tile);
 
+  const tilePosition = getHexPosition(tile.x, tile.y);
   const positions = [0, tile.elevation * elevationScale + TERRAIN_TOP_OFFSET, 0];
   const indices = [];
   for (let cornerIndex = 0; cornerIndex < 6; cornerIndex += 1) {
@@ -808,10 +908,14 @@ function createTileMesh(tile) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setIndex(indices);
+  addWorldUvAttribute(geometry, positions, tilePosition.x, tilePosition.z);
   geometry.computeVertexNormals();
   const material = new THREE.MeshStandardMaterial({
     color: getTileDisplayColor(tile),
-    roughness: 0.82,
+    map: getTerrainTexture(getTerrainSurfaceType(tile.terrain)),
+    roughness: 0.96,
+    bumpMap: getTerrainTexture(getTerrainSurfaceType(tile.terrain)),
+    bumpScale: 0.08,
     metalness: 0,
     side: THREE.DoubleSide
   });
@@ -860,14 +964,17 @@ function createChasmTileMesh(tile) {
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const tilePosition = getHexPosition(tile.x, tile.y);
+  addWorldUvAttribute(geometry, positions, tilePosition.x, tilePosition.z);
   geometry.setIndex(indices);
   geometry.addGroup(0, cliffIndexCount, 1);
   geometry.addGroup(cliffIndexCount, 18, 2);
   geometry.computeVertexNormals();
+  const rockTexture = getTerrainTexture('rock');
   const material = [
-    new THREE.MeshStandardMaterial({ color: tile.color, side: THREE.DoubleSide }),
-    new THREE.MeshStandardMaterial({ color: '#554b46', roughness: 1, side: THREE.DoubleSide }),
-    new THREE.MeshStandardMaterial({ color: '#080d17', roughness: 1, side: THREE.DoubleSide })
+    new THREE.MeshStandardMaterial({ color: tile.color, map: rockTexture, roughness: 1, side: THREE.DoubleSide }),
+    new THREE.MeshStandardMaterial({ color: '#554b46', map: rockTexture, roughness: 1, bumpMap: rockTexture, bumpScale: 0.12, side: THREE.DoubleSide }),
+    new THREE.MeshStandardMaterial({ color: '#080d17', map: rockTexture, roughness: 1, bumpMap: rockTexture, bumpScale: 0.12, side: THREE.DoubleSide })
   ];
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true;
@@ -893,37 +1000,81 @@ function createWaterPlane(tile, position) {
   return water;
 }
 
-function createTreePrototype() {
-  const tree = new THREE.Group();
-  const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.12, 0.12, 0.9, 6),
-    new THREE.MeshStandardMaterial({ color: '#7c4518', roughness: 0.85 })
-  );
-  trunk.position.y = 0.45;
-  tree.add(trunk);
+function createInstancedProps(geometry, material, instances) {
+  if (instances.length === 0) {
+    geometry.dispose();
+    material.dispose();
+    return null;
+  }
 
-  const leaves = new THREE.Mesh(
-    new THREE.ConeGeometry(0.9, 1.8, 7),
-    new THREE.MeshStandardMaterial({ color: '#16a34a', roughness: 0.55, flatShading: true })
-  );
-  leaves.position.y = 1.4;
-  tree.add(leaves);
-
-  tree.castShadow = true;
-  tree.receiveShadow = false;
-  return tree;
+  const mesh = new THREE.InstancedMesh(geometry, material, instances.length);
+  const transform = new THREE.Object3D();
+  instances.forEach((instance, index) => {
+    transform.position.set(instance.x, instance.y, instance.z);
+    transform.rotation.set(0, instance.rotation, 0);
+    transform.scale.set(instance.scaleX, instance.scaleY, instance.scaleZ);
+    transform.updateMatrix();
+    mesh.setMatrixAt(index, transform.matrix);
+    if (instance.color) mesh.setColorAt(index, new THREE.Color(instance.color));
+  });
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  mesh.computeBoundingSphere();
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  return mesh;
 }
 
-function createBoulderMesh(tile, position) {
-  const rock = new THREE.Mesh(
-    new THREE.DodecahedronGeometry(0.65, 0),
-    new THREE.MeshStandardMaterial({ color: '#77766f', roughness: 0.95, flatShading: true })
-  );
-  rock.position.set(position.x, tile.elevation * elevationScale + tileThickness * 2.5, position.z);
-  rock.scale.set(1.25, 0.9, 1);
-  rock.castShadow = true;
-  rock.receiveShadow = true;
-  return rock;
+function createSceneryMeshes(instances) {
+  const canopyGeometry = new THREE.IcosahedronGeometry(0.75, 1);
+  const canopyPositions = canopyGeometry.getAttribute('position');
+  for (let index = 0; index < canopyPositions.count; index += 1) {
+    const vertex = new THREE.Vector3().fromBufferAttribute(canopyPositions, index);
+    const irregularity = 1 + Math.sin(vertex.x * 17.3 + vertex.y * 11.7 + vertex.z * 23.1) * 0.1;
+    vertex.multiplyScalar(irregularity);
+    canopyPositions.setXYZ(index, vertex.x, vertex.y, vertex.z);
+  }
+  canopyPositions.needsUpdate = true;
+  canopyGeometry.computeVertexNormals();
+
+  const rockGeometry = new THREE.DodecahedronGeometry(0.55, 0);
+  const rockPositions = rockGeometry.getAttribute('position');
+  for (let index = 0; index < rockPositions.count; index += 1) {
+    const vertex = new THREE.Vector3().fromBufferAttribute(rockPositions, index);
+    const irregularity = 1 + Math.sin(vertex.x * 23.7 + vertex.y * 17.1 + vertex.z * 31.9) * 0.13;
+    vertex.multiplyScalar(irregularity);
+    rockPositions.setXYZ(index, vertex.x, vertex.y, vertex.z);
+  }
+  rockPositions.needsUpdate = true;
+  rockGeometry.computeVertexNormals();
+
+  const definitions = [
+    {
+      geometry: new THREE.CylinderGeometry(0.45, 0.65, 1, 5),
+      material: new THREE.MeshStandardMaterial({ color: '#ffffff', map: getTerrainTexture('soil'), roughness: 1, flatShading: true }),
+      instances: instances.trunks
+    },
+    {
+      geometry: canopyGeometry,
+      material: new THREE.MeshStandardMaterial({ color: '#ffffff', map: getTerrainTexture('forest'), roughness: 0.88, flatShading: true }),
+      instances: instances.canopies
+    },
+    {
+      geometry: rockGeometry,
+      material: new THREE.MeshStandardMaterial({ color: '#ffffff', map: getTerrainTexture('rock'), roughness: 1, bumpMap: getTerrainTexture('rock'), bumpScale: 0.08, flatShading: true }),
+      instances: instances.rocks
+    },
+    {
+      geometry: new THREE.ConeGeometry(0.16, 0.5, 3),
+      material: new THREE.MeshStandardMaterial({ color: '#ffffff', map: getTerrainTexture('grass'), roughness: 1, flatShading: true }),
+      instances: instances.groundCover
+    }
+  ];
+
+  definitions.forEach(({ geometry, material, instances: propInstances }) => {
+    const mesh = createInstancedProps(geometry, material, propInstances);
+    if (mesh) worldGroup.add(mesh);
+  });
 }
 
 function addRegionBoundaries() {
@@ -973,14 +1124,23 @@ function buildWorldMeshes() {
   }
   tileMeshes.length = 0;
   waterMeshes.length = 0;
-  forestMeshes.length = 0;
   buildTileCornerElevations();
 
-  const treePrototype = createTreePrototype();
+  const sceneryInstances = {
+    trunks: [],
+    canopies: [],
+    rocks: [],
+    groundCover: []
+  };
+  const forestCanopyColors = ['#176b37', '#218c45', '#347c3f', '#3b9852'];
+  const trunkColors = ['#69401f', '#80502a', '#8a5a32'];
+  const stoneColors = ['#77766f', '#908d83', '#5f6261', '#a39c8b'];
+  const grassColors = ['#83a83d', '#a0b94b', '#668d38', '#c2b85c'];
 
   boardData.forEach(row => {
     row.forEach(tile => {
       const tilePos = getHexPosition(tile.x, tile.y);
+      const tileRandom = createTileRandom(tile.x, tile.y);
       const tileMesh = createTileMesh(tile);
       tile.mesh = tileMesh;
       tileMesh.position.copy(tilePos);
@@ -996,24 +1156,93 @@ function buildWorldMeshes() {
       }
 
       if (tile.forestCover && tile.terrain !== 'Chasm') {
-        const treeCount = 1 + Math.floor(seededRandom() * 2);
+        const treeCount = tile.forestCover === 'Heavy Forest'
+          ? 6 + Math.floor(tileRandom() * 3)
+          : tile.forestCover === 'Dense Forest'
+            ? 5 + Math.floor(tileRandom() * 3)
+            : tile.forestCover === 'Young Forest'
+              ? 2 + Math.floor(tileRandom() * 2)
+              : 3 + Math.floor(tileRandom() * 3);
         for (let i = 0; i < treeCount; i += 1) {
-          const tree = treePrototype.clone();
-          const offsetX = (seededRandom() - 0.5) * 1.2;
-          const offsetZ = (seededRandom() - 0.5) * 1.2;
-          tree.position.set(tilePos.x + offsetX, getTileSurfaceHeight(tile), tilePos.z + offsetZ);
-          tree.rotation.y = seededRandom() * Math.PI * 2;
-          forestMeshes.push(tree);
-          worldGroup.add(tree);
+          const groundPoint = sampleTileSurfacePoint(tile, tileRandom);
+          const treeHeight = 0.55 + tileRandom() * 0.45;
+          const canopyHeight = 0.75 + tileRandom() * 0.6;
+          const treeX = groundPoint.x;
+          const treeZ = groundPoint.z;
+          const groundY = groundPoint.y;
+          const rotation = tileRandom() * Math.PI * 2;
+          sceneryInstances.trunks.push({
+            x: treeX,
+            y: groundY + treeHeight / 2,
+            z: treeZ,
+            rotation,
+            scaleX: 0.11 + tileRandom() * 0.04,
+            scaleY: treeHeight,
+            scaleZ: 0.11 + tileRandom() * 0.04,
+            color: trunkColors[Math.floor(tileRandom() * trunkColors.length)]
+          });
+          for (let cluster = 0; cluster < 3; cluster += 1) {
+            const isMainCluster = cluster === 0;
+            const clusterScale = isMainCluster ? 0.68 : 0.49;
+            sceneryInstances.canopies.push({
+              x: treeX + (isMainCluster ? 0 : (cluster === 1 ? -0.22 : 0.22) * canopyHeight),
+              y: groundY + treeHeight + canopyHeight * (isMainCluster ? 0.5 : 0.36),
+              z: treeZ + (isMainCluster ? 0 : (cluster === 1 ? 0.12 : -0.12) * canopyHeight),
+              rotation: rotation + cluster * 1.7,
+              scaleX: clusterScale * (0.9 + tileRandom() * 0.3),
+              scaleY: (canopyHeight / 1.5) * (isMainCluster ? 1 : 0.78),
+              scaleZ: clusterScale * (0.9 + tileRandom() * 0.3),
+              color: forestCanopyColors[Math.floor(tileRandom() * forestCanopyColors.length)]
+            });
+          }
         }
       }
 
-      if (tile.obstacle === 'Boulder') {
-        worldGroup.add(createBoulderMesh(tile, tilePos));
+      const rockyTerrain = ['Mountains', 'Mountain Forest', 'Rocky Wetlands', 'Stone Forest', 'Cliffside', 'Ancient Crem Fields', 'Crem Hills'];
+      const rockCount = tile.terrain === 'Chasm'
+        ? 0
+        : rockyTerrain.includes(tile.terrain)
+          ? 2 + Math.floor(tileRandom() * 4)
+          : tile.obstacle === 'Boulder'
+            ? 2 + Math.floor(tileRandom() * 3)
+            : 0;
+      for (let i = 0; i < rockCount; i += 1) {
+        const scale = 0.35 + tileRandom() * 0.45;
+        const groundPoint = sampleTileSurfacePoint(tile, tileRandom);
+        sceneryInstances.rocks.push({
+          x: groundPoint.x,
+          y: groundPoint.y + scale * 0.55,
+          z: groundPoint.z,
+          rotation: tileRandom() * Math.PI * 2,
+          scaleX: scale * (0.8 + tileRandom() * 0.6),
+          scaleY: scale * (0.6 + tileRandom() * 0.5),
+          scaleZ: scale * (0.8 + tileRandom() * 0.6),
+          color: stoneColors[Math.floor(tileRandom() * stoneColors.length)]
+        });
+      }
+
+      const grassTerrain = ['Plains', 'Crem Flats', 'Dust Basin', 'Wetlands', 'Burned Forest', 'Young Forest'];
+      if (tile.terrain !== 'Chasm' && grassTerrain.includes(tile.terrain)) {
+        const grassCount = 2 + Math.floor(tileRandom() * 4);
+        for (let i = 0; i < grassCount; i += 1) {
+          const scale = 0.45 + tileRandom() * 0.55;
+          const groundPoint = sampleTileSurfacePoint(tile, tileRandom);
+          sceneryInstances.groundCover.push({
+            x: groundPoint.x,
+            y: groundPoint.y + scale * 0.25,
+            z: groundPoint.z,
+            rotation: tileRandom() * Math.PI * 2,
+            scaleX: scale,
+            scaleY: scale,
+            scaleZ: scale,
+            color: grassColors[Math.floor(tileRandom() * grassColors.length)]
+          });
+        }
       }
     });
   });
 
+  createSceneryMeshes(sceneryInstances);
   addRegionBoundaries();
 }
 
