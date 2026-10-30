@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Humanoid Design Studio</title>
+  <link rel="stylesheet" href="humanoid.css">
+</head>
+<body>
+  <main class="studio">
+    <header class="studio-header">
+      <div>
+        <p class="eyebrow">PAY KYGAME · CHARACTER WORKSHOP</p>
+        <h1>Basic Humanoid</h1>
+        <p class="subtitle">Standalone character study. This preview is not part of the game.</p>
+      </div>
+      <div class="header-actions">
+        <button id="resetDesign" class="secondary-button" type="button">Reset design</button>
+        <button id="resetView" class="secondary-button" type="button">Reset view</button>
+      </div>
+    </header>
+
+    <section class="workspace" aria-label="Humanoid preview and design controls">
+      <div class="preview">
+        <div id="modelBadge" class="model-badge" data-state="loading">Loading character…</div>
+        <div id="characterCanvas" aria-label="Interactive 3D humanoid preview"></div>
+        <div class="preview-hint">Drag to rotate · Scroll to zoom</div>
+        <div class="view-label">HUMAN BASE MODEL · PROTOTYPE 01</div>
+      </div>
+
+      <aside class="controls">
+        <label class="design-name">
+          Preview model
+          <select id="modelSource">
+            <option value="imported">AssetFurnace Warrior</option>
+            <option value="procedural">Editable procedural figure</option>
+          </select>
+        </label>
+        <p id="modelNotice" class="model-notice">
+          The imported armor and proportions are part of the model. Switch to the procedural figure to edit the sliders.
+        </p>
+        <label id="animationControl" class="design-name animation-control" hidden>
+          Animation
+          <select id="animationSelect" aria-label="Character animation"></select>
+        </label>
+        <label class="design-name">
+          Design name
+          <input data-setting="name" type="text" maxlength="48" value="Human Base Model">
+        </label>
+
+        <details open>
+          <summary><span class="step">01</span> Body &amp; proportions</summary>
+          <div class="details-content">
+            <label class="control">
+              <span><span>Height</span><output data-output="height"></output></span>
+              <input data-setting="proportions.height" type="range" min="1.5" max="2.1" step="0.05">
+            </label>
+            <label class="control">
+              <span><span>Build</span><output data-output="build"></output></span>
+              <input data-setting="proportions.build" type="range" min="0.8" max="1.3" step="0.05">
+            </label>
+            <label class="control">
+              <span><span>Head size</span><output data-output="headSize"></output></span>
+              <input data-setting="proportions.headSize" type="range" min="0.8" max="1.25" step="0.05">
+            </label>
+            <label class="control">
+              <span><span>Shoulder width</span><output data-output="shoulderWidth"></output></span>
+              <input data-setting="proportions.shoulderWidth" type="range" min="0.8" max="1.3" step="0.05">
+            </label>
+            <label class="control">
+              <span><span>Arm length</span><output data-output="armLength"></output></span>
+              <input data-setting="proportions.armLength" type="range" min="0.75" max="1.25" step="0.05">
+            </label>
+            <label class="control">
+              <span><span>Leg length</span><output data-output="legLength"></output></span>
+              <input data-setting="proportions.legLength" type="range" min="0.8" max="1.2" step="0.05">
+            </label>
+            <label class="control">
+              <span><span>Tunic length</span><output data-output="tunicLength"></output></span>
+              <input data-setting="proportions.tunicLength" type="range" min="0.65" max="1.35" step="0.05">
+            </label>
+          </div>
+        </details>
+
+        <details open>
+          <summary><span class="step">02</span> Colors</summary>
+          <div class="details-content color-controls">
+            <label>Skin <input data-setting="colors.skin" type="color"></label>
+            <label>Tunic <input data-setting="colors.tunic" type="color"></label>
+            <label>Trousers <input data-setting="colors.trousers" type="color"></label>
+            <label>Leather <input data-setting="colors.leather" type="color"></label>
+            <label>Hair <input data-setting="colors.hair" type="color"></label>
+            <label>Metal <input data-setting="colors.metal" type="color"></label>
+          </div>
+        </details>
+
+        <details open>
+          <summary><span class="step">03</span> Gear &amp; features</summary>
+          <div class="details-content feature-controls">
+            <label>Hair style
+              <select data-setting="features.hairStyle">
+                <option value="bald">Bald</option>
+                <option value="short">Short</option>
+                <option value="long">Long</option>
+              </select>
+            </label>
+            <label><input data-setting="features.belt" type="checkbox"> Belt &amp; buckle</label>
+            <label><input data-setting="features.bracers" type="checkbox"> Leather bracers</label>
+            <label><input data-setting="features.satchel" type="checkbox"> Shoulder satchel</label>
+            <label><input data-setting="features.boots" type="checkbox"> Boots</label>
+          </div>
+        </details>
+
+        <div class="design-actions">
+          <button id="exportDesign" type="button">Export design JSON</button>
+          <input id="importDesign" type="file" accept="application/json,.json">
+          <label class="import-button" for="importDesign">Import design JSON</label>
+        </div>
+        <p id="designStatus" class="design-status" role="status" aria-live="polite">Loading design…</p>
+
+        <div class="figure-note">
+          <span class="status-dot"></span>
+          <p>Separate character-design preview<br><strong>The map game is unchanged</strong></p>
+        </div>
+      </aside>
+    </section>
+
+    <footer class="studio-footer">
+      <span>DESIGN SANDBOX</span>
+      <span>Orbit controls enabled</span>
+    </footer>
+  </main>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="humanoid.js?v=asset-furnace"></script>
+</body>
+</html>

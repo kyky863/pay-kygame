@@ -1,0 +1,29 @@
+{
+  "schema": "pay-kygame.humanoid-design",
+  "version": 1,
+  "name": "Human Base Model",
+  "proportions": {
+    "height": 1.78,
+    "build": 0.96,
+    "headSize": 0.95,
+    "shoulderWidth": 1,
+    "armLength": 0.95,
+    "legLength": 1.05,
+    "tunicLength": 1.03
+  },
+  "colors": {
+    "skin": "#bd9677",
+    "tunic": "#68745a",
+    "trousers": "#4d5148",
+    "leather": "#493b30",
+    "hair": "#342b24",
+    "metal": "#928b79"
+  },
+  "features": {
+    "hairStyle": "short",
+    "belt": true,
+    "bracers": true,
+    "satchel": true,
+    "boots": true
+  }
+}

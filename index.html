@@ -36,6 +36,21 @@
 
   <div id="canvas-container"></div>
 
+  <dialog id="campCountDialog" aria-labelledby="campCountTitle">
+    <form method="dialog">
+      <h2 id="campCountTitle">Choose starting camps</h2>
+      <p>How many camps should this world have?</p>
+      <div class="camp-count-options">
+        <button type="submit" value="2">2</button>
+        <button type="submit" value="3">3</button>
+        <button type="submit" value="4">4</button>
+        <button type="submit" value="5">5</button>
+        <button type="submit" value="6">6</button>
+      </div>
+      <button class="camp-count-cancel" type="submit" value="cancel">Cancel</button>
+    </form>
+  </dialog>
+
   <script type="importmap">
     {
       "imports": {

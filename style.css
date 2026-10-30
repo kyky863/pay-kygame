@@ -87,6 +87,48 @@ button:hover {
   box-shadow: 0 16px 36px rgba(14, 165, 233, 0.28);
 }
 
+#campCountDialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 20px;
+  color: #f8fafc;
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 24px 80px rgba(2, 6, 23, 0.65);
+}
+
+#campCountDialog::backdrop {
+  background: rgba(2, 6, 23, 0.62);
+  backdrop-filter: blur(5px);
+}
+
+#campCountDialog h2 {
+  margin: 0 0 8px;
+}
+
+#campCountDialog p {
+  margin: 0 0 20px;
+  color: #cbd5e1;
+}
+
+.camp-count-options {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.camp-count-options button {
+  min-width: 48px;
+  padding: 12px;
+}
+
+.camp-count-cancel {
+  display: block;
+  margin: 16px auto 0;
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: none;
+}
+
 #tileInfo {
   padding: 18px;
   flex: 1 1 auto;

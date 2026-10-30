@@ -1,0 +1,95 @@
+{
+  "asset": "heroic-warrior",
+  "title": "Heroic Warrior",
+  "kind": "character-rigged",
+  "made_with": "AssetFurnace (https://assetfurnace.com)",
+  "built": "2026-10-16",
+  "pipeline": [
+    {
+      "step": "source picture",
+      "tool": "Qwen-Image 2.1",
+      "license": {
+        "name": "Qwen Research License",
+        "url": "https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE",
+        "note": "Built with Qwen. Qwen states that the pictures its model generates belong to the person who made them."
+      }
+    },
+    {
+      "step": "3D model",
+      "tool": "Pixal3D",
+      "license": {
+        "name": "MIT (code + flow weights); DINOv3 License (bundled encoder)",
+        "url": "https://huggingface.co/raven38/pixal3d-sv-q8_0-v1"
+      }
+    },
+    {
+      "step": "skeleton and skin weights",
+      "tool": "SkinTokens",
+      "license": {
+        "name": "MIT",
+        "url": "https://github.com/VAST-AI-Research/SkinTokens/blob/main/LICENSE"
+      }
+    },
+    {
+      "step": "moves",
+      "tool": "Kimodo",
+      "license": {
+        "name": "NVIDIA Open Model License",
+        "url": "https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/",
+        "note": "NVIDIA claims no ownership of the outputs."
+      }
+    }
+  ],
+  "source_picture": {
+    "model": "Qwen-Image 2.1",
+    "record": "kept",
+    "prompt": "A heroic male fantasy warrior standing in a perfect T-pose, arms straight out to the sides, palms down, legs slightly apart, facing the camera. Full plate armor in dark steel with gold trim, helmet off, short dark hair, bright emerald green eyes, a thin scar across the left cheek. Chest plate engraved with a detailed crest: a golden eight-pointed star above two crossed swords inside a shield outline. Layered pauldrons with filigree edges, riveted leather straps, a chainmail skirt, a belt with an ornate buckle engraved with tiny runes, articulated gauntlets with separate fingers, armored boots. Crisp painterly fantasy game concept art, highly detailed. Full body, centered, entire figure in frame with margin, plain pure white background, soft even studio lighting, no cast shadow, no glow or particle effects, no extra text.",
+    "seed": 42,
+    "steps": 10,
+    "size": [
+      1024,
+      1024
+    ],
+    "created": "2026-10-03T07:36:44+00:00"
+  },
+  "finish": {
+    "faces": 40000,
+    "texture_size": 2048,
+    "pixel_match": true
+  },
+  "moves": [
+    {
+      "clip": "idle",
+      "speed": 1.0
+    },
+    {
+      "clip": "idle_b",
+      "speed": 1.0
+    },
+    {
+      "clip": "jump",
+      "speed": 1.0
+    },
+    {
+      "clip": "punch",
+      "speed": 1.0
+    },
+    {
+      "clip": "strafe_left",
+      "speed": 1.0
+    },
+    {
+      "clip": "walk",
+      "speed": 1.0
+    },
+    {
+      "clip": "wave",
+      "speed": 1.0
+    },
+    {
+      "clip": "wave_b",
+      "speed": 1.0
+    }
+  ],
+  "joints": null
+}

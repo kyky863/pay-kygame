@@ -45,9 +45,11 @@ let activeHighlightTile = null;
 let devView = false;
 let seed = Math.floor(Math.random() * 999999);
 let noiseSeed = seed;
+let startingCampCount = 4;
 
 const boardData = [];
 const regions = new Map();
+const startingCamps = [];
 const regionGrid = [];
 const regionBoundaryDistances = [];
 const tileMeshes = [];
@@ -546,6 +548,84 @@ function getAdjacentTiles(tile) {
   return neighbors;
 }
 
+function placeStartingCamps(campCount) {
+  startingCamps.length = 0;
+  boardData.flat().forEach(tile => {
+    tile.camp = null;
+  });
+
+  const halfWidth = hexRadius * 1.5 * (boardSize - 1) / 2;
+  const halfDepth = boardCenterOffset.z - Math.sqrt(3) * hexRadius * 0.25;
+  const ringScale = 0.78;
+  const minimumCampSpacing = hexRadius * Math.sqrt(3) * 2.7;
+  const occupiedCenters = [];
+  const perimeterSamples = [];
+  const perimeterSampleCount = 360;
+  let perimeterLength = 0;
+  for (let sampleIndex = 0; sampleIndex <= perimeterSampleCount; sampleIndex += 1) {
+    const angle = -Math.PI / 2 + sampleIndex * Math.PI * 2 / perimeterSampleCount;
+    const position = new THREE.Vector2(
+      halfWidth * ringScale * Math.cos(angle),
+      halfDepth * ringScale * Math.sin(angle)
+    );
+    if (sampleIndex > 0) perimeterLength += position.distanceTo(perimeterSamples[sampleIndex - 1].position);
+    perimeterSamples.push({ angle, position, distance: perimeterLength });
+  }
+
+  for (let campIndex = 0; campIndex < campCount; campIndex += 1) {
+    const targetDistance = perimeterLength * campIndex / campCount;
+    const nextSampleIndex = perimeterSamples.findIndex(sample => sample.distance >= targetDistance);
+    const previousSample = perimeterSamples[Math.max(0, nextSampleIndex - 1)];
+    const nextSample = perimeterSamples[nextSampleIndex];
+    const distanceSpan = nextSample.distance - previousSample.distance;
+    const angleWeight = distanceSpan > 0 ? (targetDistance - previousSample.distance) / distanceSpan : 0;
+    const angle = previousSample.angle + (nextSample.angle - previousSample.angle) * angleWeight;
+    const targetX = halfWidth * ringScale * Math.cos(angle);
+    const targetZ = halfDepth * ringScale * Math.sin(angle);
+    const candidates = boardData.flat().flatMap(tile => {
+      const footprint = [tile, ...getAdjacentTiles(tile)];
+      if (footprint.length !== 7 || tile.terrain === 'Chasm') return [];
+      const position = getHexPosition(tile.x, tile.y);
+      if (occupiedCenters.some(center => position.distanceTo(center.position) < minimumCampSpacing)) return [];
+      const targetDistance = Math.hypot(position.x - targetX, position.z - targetZ);
+      const elevationRange = Math.max(...footprint.map(hex => hex.elevation)) - Math.min(...footprint.map(hex => hex.elevation));
+      const wetnessPenalty = footprint.reduce((penalty, hex) =>
+        penalty + (hex.waterLevel > 55 ? 4 : hex.waterLevel > 30 ? 1 : 0), 0);
+      const chasmPenalty = footprint.filter(hex => hex.terrain === 'Chasm').length * 20;
+      const score = targetDistance + elevationRange * 1.5 + wetnessPenalty + chasmPenalty;
+      return [{ tile, footprint, position, score }];
+    }).sort((first, second) => first.score - second.score);
+
+    const candidate = candidates[0];
+    if (!candidate) {
+      throw new Error(`Unable to place starting camp ${campIndex + 1} without overlap.`);
+    }
+
+    const camp = {
+      id: `Camp ${campIndex + 1}`,
+      center: candidate.tile,
+      tiles: candidate.footprint
+    };
+    candidate.footprint.forEach((tile, footprintIndex) => {
+      if (tile.terrain === 'Chasm') setTerrain(tile, 'Plains');
+      tile.camp = {
+        id: camp.id,
+        role: footprintIndex === 0
+          ? 'center'
+          : footprintIndex <= 2
+            ? 'tents'
+            : footprintIndex <= 4
+              ? 'fields'
+              : 'supplies'
+      };
+      tile.forestCover = null;
+      tile.waterLevel = 0;
+    });
+    startingCamps.push(camp);
+    occupiedCenters.push({ position: candidate.position });
+  }
+}
+
 function setTerrain(tile, terrainName) {
   const wasChasm = tile.terrain === 'Chasm';
   tile.terrain = terrainName;
@@ -647,7 +727,7 @@ function processChasmFill(tile) {
 }
 
 function processHighstormCollapse(tile) {
-  if (tile.terrain === 'Chasm') return;
+  if (tile.terrain === 'Chasm' || tile.camp) return;
   const adjacent = getAdjacentTiles(tile);
   const erosionNeighbors = adjacent.filter(neighbor =>
     neighbor.waterLevel > 70 || ['Wetlands', 'Rocky Wetlands', 'Cliffside', 'Mountains'].includes(neighbor.terrain)
@@ -888,6 +968,26 @@ function sampleTileSurfacePoint(tile, random) {
   };
 }
 
+function getTileSurfaceHeightAt(tile, localX, localZ) {
+  const angle = (Math.atan2(localZ, localX) + Math.PI * 2) % (Math.PI * 2);
+  const sector = Math.floor(angle / (Math.PI / 3));
+  const nextSector = (sector + 1) % 6;
+  const angleA = sector * Math.PI / 3;
+  const angleB = nextSector * Math.PI / 3;
+  const ax = hexRadius * Math.cos(angleA);
+  const az = hexRadius * Math.sin(angleA);
+  const bx = hexRadius * Math.cos(angleB);
+  const bz = hexRadius * Math.sin(angleB);
+  const determinant = ax * bz - az * bx;
+  const cornerWeightA = (localX * bz - localZ * bx) / determinant;
+  const cornerWeightB = (ax * localZ - az * localX) / determinant;
+  const centerWeight = 1 - cornerWeightA - cornerWeightB;
+  const elevation = tile.elevation * centerWeight +
+    tile.cornerElevations[sector] * cornerWeightA +
+    tile.cornerElevations[nextSector] * cornerWeightB;
+  return elevation * elevationScale + TERRAIN_TOP_OFFSET;
+}
+
 function createTileMesh(tile) {
   if (tile.terrain === 'Chasm') return createChasmTileMesh(tile);
 
@@ -1048,6 +1148,15 @@ function createSceneryMeshes(instances) {
   rockPositions.needsUpdate = true;
   rockGeometry.computeVertexNormals();
 
+  const tentGeometry = new THREE.BufferGeometry();
+  tentGeometry.setAttribute('position', new THREE.Float32BufferAttribute([
+    -0.55, 0, -0.6, 0.55, 0, -0.6, 0, 0.85, -0.6,
+    0.55, 0, 0.6, -0.55, 0, 0.6, 0, 0.85, 0.6,
+    -0.55, 0, -0.6, 0, 0.85, -0.6, -0.55, 0, 0.6,
+    0.55, 0, 0.6, 0, 0.85, 0.6, 0.55, 0, -0.6
+  ], 3));
+  tentGeometry.computeVertexNormals();
+
   const definitions = [
     {
       geometry: new THREE.CylinderGeometry(0.45, 0.65, 1, 5),
@@ -1068,6 +1177,26 @@ function createSceneryMeshes(instances) {
       geometry: new THREE.ConeGeometry(0.16, 0.5, 3),
       material: new THREE.MeshStandardMaterial({ color: '#ffffff', map: getTerrainTexture('grass'), roughness: 1, flatShading: true }),
       instances: instances.groundCover
+    },
+    {
+      geometry: tentGeometry,
+      material: new THREE.MeshStandardMaterial({ color: '#ffffff', map: getTerrainTexture('soil'), roughness: 1, side: THREE.DoubleSide }),
+      instances: instances.tents
+    },
+    {
+      geometry: new THREE.CylinderGeometry(0.16, 0.19, 0.42, 10),
+      material: new THREE.MeshStandardMaterial({ color: '#9a6037', map: getTerrainTexture('soil'), roughness: 0.95 }),
+      instances: instances.barrels
+    },
+    {
+      geometry: new THREE.BoxGeometry(0.42, 0.34, 0.42),
+      material: new THREE.MeshStandardMaterial({ color: '#9a6037', map: getTerrainTexture('soil'), roughness: 0.95 }),
+      instances: instances.crates
+    },
+    {
+      geometry: new THREE.ConeGeometry(0.07, 0.42, 4),
+      material: new THREE.MeshStandardMaterial({ color: '#8fae49', map: getTerrainTexture('grass'), roughness: 1, flatShading: true }),
+      instances: instances.crops
     }
   ];
 
@@ -1130,7 +1259,11 @@ function buildWorldMeshes() {
     trunks: [],
     canopies: [],
     rocks: [],
-    groundCover: []
+    groundCover: [],
+    tents: [],
+    barrels: [],
+    crates: [],
+    crops: []
   };
   const forestCanopyColors = ['#176b37', '#218c45', '#347c3f', '#3b9852'];
   const trunkColors = ['#69401f', '#80502a', '#8a5a32'];
@@ -1148,14 +1281,14 @@ function buildWorldMeshes() {
       tileMeshes.push(tileMesh);
       worldGroup.add(tileMesh);
 
-      if (tile.waterLevel > 30 || tile.terrain.includes('Wetlands')) {
+      if (!tile.camp && (tile.waterLevel > 30 || tile.terrain.includes('Wetlands'))) {
         const water = createWaterPlane(tile, tilePos);
         water.position.y = getTileSurfaceHeight(tile) + 0.05 + tile.waterLevel * 0.001;
         waterMeshes.push(water);
         worldGroup.add(water);
       }
 
-      if (tile.forestCover && tile.terrain !== 'Chasm') {
+      if (!tile.camp && tile.forestCover && tile.terrain !== 'Chasm') {
         const treeCount = tile.forestCover === 'Heavy Forest'
           ? 6 + Math.floor(tileRandom() * 3)
           : tile.forestCover === 'Dense Forest'
@@ -1199,7 +1332,7 @@ function buildWorldMeshes() {
       }
 
       const rockyTerrain = ['Mountains', 'Mountain Forest', 'Rocky Wetlands', 'Stone Forest', 'Cliffside', 'Ancient Crem Fields', 'Crem Hills'];
-      const rockCount = tile.terrain === 'Chasm'
+      const rockCount = tile.camp || tile.terrain === 'Chasm'
         ? 0
         : rockyTerrain.includes(tile.terrain)
           ? 2 + Math.floor(tileRandom() * 4)
@@ -1222,7 +1355,7 @@ function buildWorldMeshes() {
       }
 
       const grassTerrain = ['Plains', 'Crem Flats', 'Dust Basin', 'Wetlands', 'Burned Forest', 'Young Forest'];
-      if (tile.terrain !== 'Chasm' && grassTerrain.includes(tile.terrain)) {
+      if (!tile.camp && tile.terrain !== 'Chasm' && grassTerrain.includes(tile.terrain)) {
         const grassCount = 2 + Math.floor(tileRandom() * 4);
         for (let i = 0; i < grassCount; i += 1) {
           const scale = 0.45 + tileRandom() * 0.55;
@@ -1237,6 +1370,68 @@ function buildWorldMeshes() {
             scaleZ: scale,
             color: grassColors[Math.floor(tileRandom() * grassColors.length)]
           });
+        }
+      }
+
+      if (tile.camp) {
+        const campRandom = createTileRandom(tile.x + 41, tile.y + 79);
+        const addGroundProp = (instances, scaleX, scaleY, scaleZ, color, propHeight) => {
+          const groundPoint = sampleTileSurfacePoint(tile, campRandom);
+          instances.push({
+            x: groundPoint.x,
+            y: groundPoint.y + propHeight * scaleY * 0.5,
+            z: groundPoint.z,
+            rotation: campRandom() * Math.PI * 2,
+            scaleX,
+            scaleY,
+            scaleZ,
+            color
+          });
+        };
+
+        if (tile.camp.role === 'center' || tile.camp.role === 'tents') {
+          const tentCount = tile.camp.role === 'center' ? 2 : 1;
+          for (let tentIndex = 0; tentIndex < tentCount; tentIndex += 1) {
+            const groundPoint = sampleTileSurfacePoint(tile, campRandom);
+            const tentXOffset = tentIndex ? 0.55 : -0.55;
+            sceneryInstances.tents.push({
+              x: groundPoint.x + tentXOffset,
+              y: getTileSurfaceHeightAt(
+                tile,
+                groundPoint.x - getHexPosition(tile.x, tile.y).x + tentXOffset,
+                groundPoint.z - getHexPosition(tile.x, tile.y).z
+              ) + 0.02,
+              z: groundPoint.z,
+              rotation: campRandom() * Math.PI * 2,
+              scaleX: 0.72 + campRandom() * 0.2,
+              scaleY: 0.75 + campRandom() * 0.18,
+              scaleZ: 0.72 + campRandom() * 0.2,
+              color: campRandom() > 0.5 ? '#b9a17c' : '#8d6549'
+            });
+          }
+          addGroundProp(sceneryInstances.barrels, 1, 1, 1, '#9a6037', 0.42);
+        } else if (tile.camp.role === 'fields') {
+          for (let rowIndex = 0; rowIndex < 4; rowIndex += 1) {
+            for (let cropIndex = 0; cropIndex < 4; cropIndex += 1) {
+              const localX = (cropIndex - 1.5) * 0.3 + (campRandom() - 0.5) * 0.08;
+              const localZ = (rowIndex - 1.5) * 0.3 + (campRandom() - 0.5) * 0.08;
+              const campTilePosition = getHexPosition(tile.x, tile.y);
+              sceneryInstances.crops.push({
+                x: campTilePosition.x + localX,
+                y: getTileSurfaceHeightAt(tile, localX, localZ) + 0.2,
+                z: campTilePosition.z + localZ,
+                rotation: campRandom() * Math.PI * 2,
+                scaleX: 0.7,
+                scaleY: 0.55 + campRandom() * 0.5,
+                scaleZ: 0.7,
+                color: campRandom() > 0.45 ? '#8fae49' : '#b5a24a'
+              });
+            }
+          }
+        } else {
+          addGroundProp(sceneryInstances.barrels, 1, 1, 1, '#9a6037', 0.42);
+          addGroundProp(sceneryInstances.crates, 1, 1, 1, '#a87648', 0.34);
+          addGroundProp(sceneryInstances.crates, 0.85, 0.9, 0.85, '#8e613b', 0.34);
         }
       }
     });
@@ -1372,6 +1567,7 @@ function generateBoard() {
 
   smoothElevations();
   regions.forEach(updateRegionClassification);
+  placeStartingCamps(startingCampCount);
 
   buildWorldMeshes();
   updateUI();
@@ -1382,7 +1578,7 @@ function updateUI() {
   const tileDetails = document.getElementById('tileDetails');
   const clearTileButton = document.getElementById('clearTileButton');
 
-  statusText.innerText = `Day ${currentDay} · ${timeOfDay.toFixed(1)}h · ${weather} · ${regions.size} regions · ${stormType ? stormType + ' ongoing' : 'No storm'}`;
+  statusText.innerText = `Day ${currentDay} · ${timeOfDay.toFixed(1)}h · ${weather} · ${regions.size} regions · ${startingCamps.length} camps · ${stormType ? stormType + ' ongoing' : 'No storm'}`;
   clearTileButton.disabled = !selectedTile;
 
   if (selectedTile) {
@@ -1412,6 +1608,7 @@ function updateUI() {
       ${selectedTile.forestCover ? `Forest cover: ${selectedTile.forestCover}<br>` : ''}
       ${selectedTile.obstacle ? `Obstacle: ${selectedTile.obstacle}<br>` : ''}
       ${selectedTile.hazard ? '⚡ ' + selectedTile.hazard + '<br>' : ''}
+      ${selectedTile.camp ? `<strong>Starting Camp</strong>${selectedTile.camp.id} · ${selectedTile.camp.role}<br>` : ''}
       ${effectTable('localCombat', 'Local effects')}
       ${effectTable('finalCombat', 'Final effects', true)}
       <span class="rules-note">Local effects include terrain and high ground. Movement includes both regional and hex rules.</span><br>
@@ -1529,7 +1726,14 @@ function rebuildTileStyles() {
 }
 
 function connectUI() {
+  const campCountDialog = document.getElementById('campCountDialog');
   document.getElementById('regenButton').addEventListener('click', () => {
+    campCountDialog.showModal();
+  });
+  campCountDialog.addEventListener('close', () => {
+    const campCount = Number(campCountDialog.returnValue);
+    if (!Number.isInteger(campCount) || campCount < 2 || campCount > 6) return;
+    startingCampCount = campCount;
     generateBoard();
     selectedTile = null;
     highlightTile(null);

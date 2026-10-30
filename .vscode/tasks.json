@@ -7,6 +7,13 @@
 			"command": "python3 -m http.server 8000 --bind 0.0.0.0",
 			"isBackground": true,
 			"problemMatcher": []
+		},
+		{
+			"label": "Launch Humanoid Design Studio",
+			"type": "shell",
+			"command": "python3 -m http.server 8001 --bind 0.0.0.0 --directory humanoid-preview",
+			"isBackground": true,
+			"problemMatcher": []
 		}
 	]
 }

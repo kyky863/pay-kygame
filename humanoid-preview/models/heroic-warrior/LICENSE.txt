@@ -1,0 +1,15 @@
+Heroic Warrior
+==============
+
+FREE TO USE, INCLUDING IN COMMERCIAL GAMES.
+Credit is appreciated ("Made with AssetFurnace, assetfurnace.com") but not required.
+Please do not resell or re-host these files as a standalone asset pack.
+
+Made with:
+  - Qwen-Image 2.1: the source picture (Built with Qwen)
+  - Pixal3D: the 3D model
+  - SkinTokens: the skeleton
+  - NVIDIA Kimodo: the moves
+
+Each tool's own licence is listed in provenance.json.
+The files are provided as they are, with no warranty.
